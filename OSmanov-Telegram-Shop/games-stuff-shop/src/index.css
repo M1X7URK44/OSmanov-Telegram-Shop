@@ -1,0 +1,38 @@
+@font-face {
+    font-family: "Oxanium-Regular";
+    src: url("./assets/fonts/Oxanium.ttf");
+}
+
+@font-face {
+    font-family: "Orbitron-Regular";
+    src: url("./assets/fonts/Orbitron.ttf");
+}
+
+@font-face {
+    font-family: "Jura-Regular";
+    src: url("./assets/fonts/Jura/Jura-Regular.ttf");
+}
+
+@font-face {
+    font-family: "ChakraPetch-Regular";
+    src: url("./assets/fonts/ChakraPetch-Regular.otf");
+}
+
+
+:root {
+    --max-window-width: 1200px;
+}
+
+#root {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+body {
+    margin: 0px;
+    padding: 12px;
+    box-sizing: border-box;
+    background: #000815;
+    height: 100vh;
+}
