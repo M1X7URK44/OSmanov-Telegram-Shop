@@ -1,5 +1,15 @@
 import axios, { AxiosResponse } from 'axios';
-import { Credentials, AuthResponse, Category, Service, OrderInfo } from '../types/api.types';
+import { 
+  Credentials, 
+  AuthResponse, 
+  Category, 
+  Service, 
+  OrderInfo, 
+  CreateOrderRequest, 
+  CreateOrderResponse, 
+  PayOrderRequest, 
+  PayOrderResponse 
+} from '../types/api.types';
 
 const MAIN_URL = 'https://api.ns.gifts';
 
@@ -78,6 +88,29 @@ class GiftsApiService {
     };
 
     return await this.makeRequest<OrderInfo>(url, 'POST', headers, data);
+  }
+
+  async createOrder(token: string, orderData: CreateOrderRequest): Promise<CreateOrderResponse> {
+    const url = `${MAIN_URL}/api/v1/create_order`;
+    const headers = {
+      'Authorization': `Bearer ${token}`,
+      'Content-Type': 'application/json'
+    };
+
+    return await this.makeRequest<CreateOrderResponse>(url, 'POST', headers, orderData);
+  }
+
+  async payOrder(token: string, custom_id: string): Promise<PayOrderResponse> {
+    const url = `${MAIN_URL}/api/v1/pay_order`;
+    const headers = {
+      'Authorization': `Bearer ${token}`,
+      'Content-Type': 'application/json'
+    };
+    const data = {
+      custom_id
+    };
+
+    return await this.makeRequest<PayOrderResponse>(url, 'POST', headers, data);
   }
 }
 

@@ -85,7 +85,7 @@ const AllGamesPage: React.FC = () => {
                 params: { category_id: tagID }
             });
             
-            setServices(response.data.data.sort((el1, el2) => el1.service_id - el2.service_id));
+            setServices(response.data.data.sort((el1, el2) => el1.service_id - el2.service_id).filter((item) => item.in_stock !== 0));
             setIsServicesModalOpen(true);
         } catch (error) {
             console.error('Error fetching services:', error);

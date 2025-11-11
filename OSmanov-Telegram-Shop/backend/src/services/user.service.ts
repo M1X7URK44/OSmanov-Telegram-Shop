@@ -1,5 +1,6 @@
 import { query, getClient } from '../database/db';
-import { User, Purchase, UserProfile, BalanceUpdate } from '../types/user.types';
+import { User, UserProfile, Purchase, Transaction, BalanceUpdate } from '../types/user.types';
+import { CartItem, CheckoutResponse } from '../types/api.types';
 
 export class UserService {
   async getUserById(userId: number): Promise<User | null> {
@@ -33,7 +34,7 @@ export class UserService {
   async getUserPurchases(userId: number, limit: number = 10): Promise<Purchase[]> {
     try {
       const result = await query(
-        `SELECT id, service_id, service_name, amount, currency, status, purchase_date, created_at 
+        `SELECT id, user_id, service_id, service_name, amount, currency, status, purchase_date, created_at, custom_id
          FROM purchases 
          WHERE user_id = $1 
          ORDER BY purchase_date DESC 
@@ -130,7 +131,7 @@ export class UserService {
           purchaseData.service_id,
           purchaseData.service_name,
           purchaseData.amount,
-          purchaseData.currency,
+          purchaseData.currency || 'USD',
           purchaseData.status,
           purchaseData.purchase_date || new Date().toISOString()
         ]
@@ -179,6 +180,241 @@ export class UserService {
       return result.rows;
     } catch (error) {
       console.error('Error fetching transaction history:', error);
+      throw error;
+    }
+  }
+
+  // НОВЫЕ МЕТОДЫ ДЛЯ РАБОТЫ С ЗАКАЗАМИ
+
+  async savePurchaseWithDetails(purchaseData: {
+    user_id: number;
+    custom_id: string;
+    service_id: number;
+    service_name: string;
+    quantity: number;
+    total_price: number;
+    status: 'pending' | 'completed' | 'failed';
+    pins?: string[];
+    data?: string;
+  }): Promise<void> {
+    const client = await getClient();
+    
+    try {
+      await client.query('BEGIN');
+
+      // Сохраняем основную информацию о покупке
+      const purchaseResult = await client.query(
+        `INSERT INTO purchases (user_id, service_id, service_name, amount, currency, status, purchase_date, custom_id) 
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8) 
+         RETURNING *`,
+        [
+          purchaseData.user_id,
+          purchaseData.service_id,
+          purchaseData.service_name,
+          purchaseData.total_price,
+          'USD',
+          purchaseData.status,
+          new Date().toISOString(),
+          purchaseData.custom_id
+        ]
+      );
+
+      // Сохраняем детали заказа в транзакции
+      const paymentDetails = {
+        custom_id: purchaseData.custom_id,
+        quantity: purchaseData.quantity,
+        pins: purchaseData.pins || null,
+        data: purchaseData.data || null,
+        service_id: purchaseData.service_id,
+        service_name: purchaseData.service_name
+      };
+
+      await client.query(
+        `INSERT INTO transactions (user_id, amount, type, status, payment_method, payment_details) 
+         VALUES ($1, $2, 'purchase', $3, 'gifts_api', $4)`,
+        [
+          purchaseData.user_id,
+          purchaseData.total_price,
+          purchaseData.status,
+          JSON.stringify(paymentDetails)
+        ]
+      );
+
+      // Если статус completed, обновляем total_spent
+      if (purchaseData.status === 'completed') {
+        await client.query(
+          `UPDATE users 
+           SET total_spent = total_spent + $1,
+               updated_at = CURRENT_TIMESTAMP 
+           WHERE id = $2`,
+          [purchaseData.total_price, purchaseData.user_id]
+        );
+      }
+
+      await client.query('COMMIT');
+    } catch (error) {
+      await client.query('ROLLBACK');
+      console.error('Error saving purchase with details:', error);
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async updatePurchaseStatus(custom_id: string, status: 'pending' | 'completed' | 'failed', pins?: string[], data?: string): Promise<void> {
+    const client = await getClient();
+    
+    try {
+      await client.query('BEGIN');
+
+      // Обновляем статус покупки по custom_id
+      await client.query(
+        `UPDATE purchases 
+        SET status = $1 
+        WHERE custom_id = $2`,
+        [status, custom_id]
+      );
+
+      // Находим транзакцию по custom_id
+      const transactionResult = await client.query(
+        `SELECT id, user_id, amount 
+         FROM transactions 
+         WHERE payment_details->>'custom_id' = $1 AND type = 'purchase'`,
+        [custom_id]
+      );
+
+      if (transactionResult.rows.length === 0) {
+        throw new Error(`Transaction not found for custom_id: ${custom_id}`);
+      }
+
+      const transaction = transactionResult.rows[0];
+      
+      // Обновляем статус покупки
+      await client.query(
+        `UPDATE purchases 
+         SET status = $1 
+         WHERE user_id = $2 AND amount = $3
+         ORDER BY created_at DESC 
+         LIMIT 1`,
+        [status, transaction.user_id, transaction.amount]
+      );
+
+      // Обновляем статус транзакции
+      await client.query(
+        `UPDATE transactions 
+         SET status = $1 
+         WHERE id = $2`,
+        [status, transaction.id]
+      );
+
+      // Обновляем payment_details если есть pins или data
+      if (pins || data) {
+        const currentDetailsResult = await client.query(
+          `SELECT payment_details FROM transactions WHERE id = $1`,
+          [transaction.id]
+        );
+
+        const currentDetails = currentDetailsResult.rows[0].payment_details || {};
+        const updatedDetails = {
+          ...currentDetails,
+          ...(pins && { pins }),
+          ...(data && { data })
+        };
+
+        await client.query(
+          `UPDATE transactions 
+           SET payment_details = $1 
+           WHERE id = $2`,
+          [JSON.stringify(updatedDetails), transaction.id]
+        );
+      }
+
+      // Если статус стал completed, обновляем total_spent
+       if (status === 'completed') {
+        const purchaseResult = await client.query(
+          `SELECT user_id, amount FROM purchases WHERE custom_id = $1`,
+          [custom_id]
+        );
+        
+        if (purchaseResult.rows.length > 0) {
+          const purchase = purchaseResult.rows[0];
+          await client.query(
+            `UPDATE users 
+            SET total_spent = total_spent + $1,
+                updated_at = CURRENT_TIMESTAMP 
+            WHERE id = $2`,
+            [purchase.amount, purchase.user_id]
+          );
+        }
+      }
+
+      await client.query('COMMIT');
+    } catch (error) {
+      await client.query('ROLLBACK');
+      console.error('Error updating purchase status:', error);
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async getUserBalance(userId: number): Promise<number> {
+    try {
+      const result = await query(
+        'SELECT balance FROM users WHERE id = $1',
+        [userId]
+      );
+      
+      if (result.rows.length === 0) {
+        throw new Error('User not found');
+      }
+      
+      return parseFloat(result.rows[0].balance);
+    } catch (error) {
+      console.error('Error getting user balance:', error);
+      throw error;
+    }
+  }
+
+  async deductUserBalance(userId: number, amount: number): Promise<void> {
+    const client = await getClient();
+    
+    try {
+      await client.query('BEGIN');
+
+      const result = await client.query(
+        'UPDATE users SET balance = balance - $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2 AND balance >= $1 RETURNING *',
+        [amount, userId]
+      );
+
+      if (result.rows.length === 0) {
+        throw new Error('Insufficient balance or user not found');
+      }
+
+      await client.query('COMMIT');
+    } catch (error) {
+      await client.query('ROLLBACK');
+      console.error('Error deducting user balance:', error);
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+
+  async getPurchaseByCustomId(custom_id: string): Promise<any> {
+    try {
+      const result = await query(
+        `SELECT p.*, t.payment_details->>'pins' as pins, t.payment_details->>'data' as user_data
+        FROM purchases p
+        LEFT JOIN transactions t ON t.payment_details->>'custom_id' = p.custom_id
+        WHERE p.custom_id = $1`,
+        [custom_id]
+      );
+      
+      return result.rows[0] || null;
+    } catch (error) {
+      console.error('Error fetching purchase by custom_id:', error);
       throw error;
     }
   }

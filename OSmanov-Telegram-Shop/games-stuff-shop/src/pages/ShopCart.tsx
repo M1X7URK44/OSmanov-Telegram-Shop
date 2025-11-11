@@ -1,10 +1,15 @@
-import React from 'react';
+import React, { useState } from 'react';
 import styled from 'styled-components';
 import { useCart } from '../context/CartContext';
+import { useOrders } from '../hooks/useOrders';
+import { type CheckoutItemResult } from '../services/orderService';
 
 const ShopCartPage: React.FC = () => {
-    const { state, updateQuantity, removeItem, clearCart } = useCart();
+    const { state, updateQuantity, removeItem, clearCart, updateUserData, requiresUserData } = useCart();
     const { items, total } = state;
+    const { checkout, loading, error, result, validateCheckout, getStatusColor } = useOrders();
+
+    const [showCheckoutModal, setShowCheckoutModal] = useState(false);
 
     const handleQuantityChange = (serviceId: number, newQuantity: number) => {
         if (newQuantity <= 0) {
@@ -18,14 +23,56 @@ const ShopCartPage: React.FC = () => {
         removeItem(serviceId);
     };
 
-    const handleCheckout = () => {
-        if (items.length === 0) return;
-        
-        // Здесь будет логика оформления заказа
-        alert('Функционал оформления заказа в разработке!');
+    const handleUserDataChange = (serviceId: number, value: string) => {
+        updateUserData(serviceId, value);
     };
 
-    if (items.length === 0) {
+    const handleCheckout = async () => {
+        if (items.length === 0) return;
+        
+        // Проверяем валидацию перед отправкой
+        const validationError = validateCheckout(items);
+        if (validationError) {
+            alert(validationError);
+            return;
+        }
+
+        setShowCheckoutModal(true);
+        
+        try {
+            // В реальном приложении здесь будет ID текущего пользователя из контекста/авторизации
+            const userId = 1; // Временно используем ID 1 для теста
+            
+            await checkout(userId, items);
+            
+        } catch (err) {
+            console.error('Checkout error:', err);
+            // Ошибка уже обработана в хуке useOrders
+        }
+    };
+
+    const handleCloseModal = () => {
+        setShowCheckoutModal(false);
+        // Очищаем корзину только если все заказы успешны
+        if (result && result.data.total_failed === 0) {
+            clearCart();
+        }
+    };
+
+    const handleRetryCheckout = () => {
+        setShowCheckoutModal(false);
+        // Даем пользователю возможность исправить ошибки и попробовать снова
+    };
+
+    const getStatusMessage = (status: number): string => {
+        switch (status) {
+            case 2: return '✅ Успешно завершено';
+            case 3: return '❌ Ошибка';
+            default: return '⏳ В обработке';
+        }
+    };
+
+    if (items.length === 0 && !showCheckoutModal) {
         return (
             <CartContainer>
                 <CartHeader>
@@ -41,69 +88,209 @@ const ShopCartPage: React.FC = () => {
     }
 
     return (
-        <CartContainer>
-            <CartHeader>
-                <CartTitle>Корзина покупок</CartTitle>
-                <ClearCartButton onClick={clearCart}>
-                    Очистить корзину
-                </ClearCartButton>
-            </CartHeader>
+        <>
+            <CartContainer>
+                <CartHeader>
+                    <CartTitle>Корзина покупок</CartTitle>
+                    <ClearCartButton onClick={clearCart}>
+                        Очистить корзину
+                    </ClearCartButton>
+                </CartHeader>
 
-            <CartItems>
-                {items.map((item) => (
-                    <CartItem key={item.service_id}>
-                        <ItemInfo>
-                            <ItemName>{item.service_name}</ItemName>
-                            {item.service_description && (
-                                <ItemDescription>{item.service_description}</ItemDescription>
-                            )}
-                            <ItemPrice>
-                                {item.price} {item.currency || 'USD'} × {item.quantity} = 
-                                <TotalPrice> {((item.price || 0) * item.quantity).toFixed(2)} {item.currency || 'USD'}</TotalPrice>
-                            </ItemPrice>
-                        </ItemInfo>
+                <CartItems>
+                    {items.map((item) => (
+                        <CartItem key={item.service_id}>
+                            <ItemInfo>
+                                <ItemName>{item.service_name}</ItemName>
+                                {item.service_description && (
+                                    <ItemDescription>{item.service_description}</ItemDescription>
+                                )}
+                                <ItemPrice>
+                                    {item.price || 0} {item.currency || 'USD'} × {item.quantity} = 
+                                    <TotalPrice> {((item.price || 0) * item.quantity).toFixed(2)} {item.currency || 'USD'}</TotalPrice>
+                                </ItemPrice>
+                                
+                                {/* Поле для ввода данных, если требуется */}
+                                {requiresUserData(item.service_name) && (
+                                    <DataInputContainer>
+                                        <DataInputLabel>
+                                            {item.service_name.includes('Steam') ? 'Steam логин' : 'Дополнительные данные'} *
+                                        </DataInputLabel>
+                                        <DataInput
+                                            type="text"
+                                            placeholder={item.service_name.includes('Steam') ? 'Введите ваш Steam логин' : 'Введите необходимые данные'}
+                                            value={item.userData || ''}
+                                            onChange={(e) => handleUserDataChange(item.service_id, e.target.value)}
+                                        />
+                                        <DataInputHint>
+                                            * Обязательное поле для этого товара
+                                        </DataInputHint>
+                                    </DataInputContainer>
+                                )}
+                            </ItemInfo>
+                            
+                            <ItemControls>
+                                <QuantityControl>
+                                    <QuantityButton 
+                                        onClick={() => handleQuantityChange(item.service_id, item.quantity - 1)}
+                                        disabled={loading}
+                                    >
+                                        -
+                                    </QuantityButton>
+                                    <QuantityDisplay>{item.quantity}</QuantityDisplay>
+                                    <QuantityButton 
+                                        onClick={() => handleQuantityChange(item.service_id, item.quantity + 1)}
+                                        disabled={loading}
+                                    >
+                                        +
+                                    </QuantityButton>
+                                </QuantityControl>
+                                <RemoveButton 
+                                    onClick={() => handleRemoveItem(item.service_id)}
+                                    disabled={loading}
+                                >
+                                    Удалить
+                                </RemoveButton>
+                            </ItemControls>
+                        </CartItem>
+                    ))}
+                </CartItems>
+
+                <CartSummary>
+                    <TotalSummary>
+                        <SummaryRow>
+                            <SummaryLabel>Количество товаров:</SummaryLabel>
+                            <SummaryValue>
+                                {items.reduce((total, item) => total + item.quantity, 0)}
+                            </SummaryValue>
+                        </SummaryRow>
+                        <SummaryRow>
+                            <SummaryLabel>Общая сумма:</SummaryLabel>
+                            <SummaryValue>{total.toFixed(2)} USD</SummaryValue>
+                        </SummaryRow>
+                    </TotalSummary>
+                    
+                    <CheckoutButton 
+                        onClick={handleCheckout}
+                        disabled={loading || items.length === 0}
+                    >
+                        {loading ? 'Обработка...' : `Купить за ${total.toFixed(2)} USD`}
+                    </CheckoutButton>
+                </CartSummary>
+            </CartContainer>
+
+            {/* Модальное окно результатов заказа */}
+            {showCheckoutModal && (
+                <ModalOverlay>
+                    <ModalContent>
+                        <ModalHeader>
+                            <ModalTitle>
+                                {loading ? 'Обработка заказа...' : 'Результат заказа'}
+                            </ModalTitle>
+                            <CloseButton onClick={handleCloseModal}>×</CloseButton>
+                        </ModalHeader>
                         
-                        <ItemControls>
-                            <QuantityControl>
-                                <QuantityButton 
-                                    onClick={() => handleQuantityChange(item.service_id, item.quantity - 1)}
-                                >
-                                    -
-                                </QuantityButton>
-                                <QuantityDisplay>{item.quantity}</QuantityDisplay>
-                                <QuantityButton 
-                                    onClick={() => handleQuantityChange(item.service_id, item.quantity + 1)}
-                                >
-                                    +
-                                </QuantityButton>
-                            </QuantityControl>
-                            <RemoveButton onClick={() => handleRemoveItem(item.service_id)}>
-                                Удалить
-                            </RemoveButton>
-                        </ItemControls>
-                    </CartItem>
-                ))}
-            </CartItems>
-
-            <CartSummary>
-                <TotalSummary>
-                    <SummaryRow>
-                        <SummaryLabel>Количество товаров:</SummaryLabel>
-                        <SummaryValue>
-                            {items.reduce((total, item) => total + item.quantity, 0)}
-                        </SummaryValue>
-                    </SummaryRow>
-                    <SummaryRow>
-                        <SummaryLabel>Общая сумма:</SummaryLabel>
-                        <SummaryValue>{total.toFixed(2)} USD</SummaryValue>
-                    </SummaryRow>
-                </TotalSummary>
-                
-                <CheckoutButton onClick={handleCheckout}>
-                    Купить
-                </CheckoutButton>
-            </CartSummary>
-        </CartContainer>
+                        <ModalBody>
+                            {loading && (
+                                <LoadingMessage>
+                                    <Spinner />
+                                    Обрабатываем ваш заказ...
+                                    <LoadingSubtext>Это может занять несколько секунд</LoadingSubtext>
+                                </LoadingMessage>
+                            )}
+                            
+                            {error && (
+                                <ErrorMessage>
+                                    <ErrorIcon>❌</ErrorIcon>
+                                    <ErrorMessageContent>
+                                        <ErrorMessageTitle>Произошла ошибка</ErrorMessageTitle>
+                                        <ErrorMessageText>{error}</ErrorMessageText>
+                                    </ErrorMessageContent>
+                                </ErrorMessage>
+                            )}
+                            
+                            {result && (
+                                <ResultsContainer>
+                                    <ResultsHeader success={result.data.total_failed === 0}>
+                                        <ResultsTitle>
+                                            {result.data.total_failed === 0 ? '✅ Заказ успешно обработан!' : '⚠️ Заказ обработан с ошибками'}
+                                        </ResultsTitle>
+                                        <ResultsSummary>
+                                            <SummaryItem success>
+                                                Успешно: {result.data.total_processed}
+                                            </SummaryItem>
+                                            {result.data.total_failed > 0 && (
+                                                <SummaryItem error>
+                                                    Ошибок: {result.data.total_failed}
+                                                </SummaryItem>
+                                            )}
+                                            <SummaryItem>
+                                                Сумма: {result.data.total_amount.toFixed(2)} USD
+                                            </SummaryItem>
+                                        </ResultsSummary>
+                                    </ResultsHeader>
+                                    
+                                    <ResultsList>
+                                        {result.data.results.map((item: CheckoutItemResult, index: number) => (
+                                            <ResultItem key={index} success={item.success}>
+                                                <ResultHeader>
+                                                    <ResultService>{item.service_name}</ResultService>
+                                                    <ResultStatus style={{ color: getStatusColor(item.status) }}>
+                                                        {getStatusMessage(item.status)}
+                                                    </ResultStatus>
+                                                </ResultHeader>
+                                                
+                                                {item.pins && item.pins.length > 0 && (
+                                                    <ResultDetails>
+                                                        <ResultLabel>Коды:</ResultLabel>
+                                                        <ResultPins>
+                                                            {item.pins.map((pin, pinIndex) => (
+                                                                <PinCode key={pinIndex}>{pin}</PinCode>
+                                                            ))}
+                                                        </ResultPins>
+                                                    </ResultDetails>
+                                                )}
+                                                
+                                                {item.data && (
+                                                    <ResultDetails>
+                                                        <ResultLabel>Данные:</ResultLabel>
+                                                        <ResultData>{item.data}</ResultData>
+                                                    </ResultDetails>
+                                                )}
+                                                
+                                                {item.error && (
+                                                    <ResultDetails>
+                                                        <ResultLabel>Ошибка:</ResultLabel>
+                                                        <ResultError>{item.error}</ResultError>
+                                                    </ResultDetails>
+                                                )}
+                                            </ResultItem>
+                                        ))}
+                                    </ResultsList>
+                                </ResultsContainer>
+                            )}
+                        </ModalBody>
+                        
+                        <ModalFooter>
+                            {result && result.data.total_failed > 0 ? (
+                                <>
+                                    <ModalButton secondary onClick={handleRetryCheckout}>
+                                        Исправить и повторить
+                                    </ModalButton>
+                                    <ModalButton onClick={handleCloseModal}>
+                                        Понятно
+                                    </ModalButton>
+                                </>
+                            ) : (
+                                <ModalButton onClick={handleCloseModal}>
+                                    {result ? 'Отлично!' : 'Закрыть'}
+                                </ModalButton>
+                            )}
+                        </ModalFooter>
+                    </ModalContent>
+                </ModalOverlay>
+            )}
+        </>
     );
 };
 
@@ -205,6 +392,52 @@ const TotalPrice = styled.span`
     margin-left: 5px;
 `;
 
+const DataInputContainer = styled.div`
+    margin-top: 12px;
+    padding: 12px;
+    background: rgba(255, 255, 255, 0.03);
+    border-radius: 6px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+`;
+
+const DataInputLabel = styled.label`
+    display: block;
+    color: #88FB47;
+    font-family: "ChakraPetch-Regular";
+    font-size: 12px;
+    font-weight: 600;
+    margin-bottom: 6px;
+`;
+
+const DataInput = styled.input`
+    width: 100%;
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 5px;
+    padding: 10px 12px;
+    color: white;
+    font-family: "ChakraPetch-Regular";
+    font-size: 14px;
+    
+    &::placeholder {
+        color: #737591;
+    }
+    
+    &:focus {
+        outline: none;
+        border-color: #88FB47;
+        box-shadow: 0 0 0 2px rgba(136, 251, 71, 0.2);
+    }
+`;
+
+const DataInputHint = styled.span`
+    display: block;
+    color: #737591;
+    font-family: "ChakraPetch-Regular";
+    font-size: 10px;
+    margin-top: 4px;
+`;
+
 const ItemControls = styled.div`
     display: flex;
     flex-direction: column;
@@ -231,8 +464,13 @@ const QuantityButton = styled.button`
     padding: 8px 12px;
     transition: background-color 0.3s ease;
 
-    &:hover {
+    &:hover:not(:disabled) {
         background: rgba(255, 255, 255, 0.1);
+    }
+
+    &:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
     }
 `;
 
@@ -258,8 +496,13 @@ const RemoveButton = styled.button`
     cursor: pointer;
     transition: all 0.3s ease;
 
-    &:hover {
+    &:hover:not(:disabled) {
         background: rgba(255, 59, 59, 0.2);
+    }
+
+    &:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
     }
 `;
 
@@ -315,7 +558,7 @@ const CheckoutButton = styled.button`
     cursor: pointer;
     transition: all 0.3s ease;
 
-    &:hover {
+    &:hover:not(:disabled) {
         transform: translateY(-2px);
         box-shadow: 0 10px 25px rgba(136, 251, 71, 0.3);
     }
@@ -358,4 +601,319 @@ const EmptyCartSubtext = styled.p`
     font-family: "ChakraPetch-Regular";
     font-size: 16px;
     margin: 0;
+`;
+
+// Стили для модального окна
+const ModalOverlay = styled.div`
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.8);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 1000;
+    animation: fadeIn 0.3s ease-out;
+
+    @keyframes fadeIn {
+        from { opacity: 0; }
+        to { opacity: 1; }
+    }
+`;
+
+const ModalContent = styled.div`
+    background: #1a1a2e;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 15px;
+    padding: 0;
+    max-width: 600px;
+    width: 90%;
+    max-height: 80vh;
+    overflow: hidden;
+    animation: slideUp 0.3s ease-out;
+
+    @keyframes slideUp {
+        from { opacity: 0; transform: translateY(30px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
+`;
+
+const ModalHeader = styled.div`
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 20px 25px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+`;
+
+const ModalTitle = styled.h2`
+    color: #fff;
+    font-family: "ChakraPetch-Regular";
+    font-size: 20px;
+    margin: 0;
+`;
+
+const CloseButton = styled.button`
+    background: none;
+    border: none;
+    color: #737591;
+    font-size: 24px;
+    cursor: pointer;
+    padding: 0;
+    width: 30px;
+    height: 30px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    
+    &:hover {
+        background: rgba(255, 255, 255, 0.1);
+        color: #fff;
+    }
+`;
+
+const ModalBody = styled.div`
+    padding: 25px;
+    max-height: 400px;
+    overflow-y: auto;
+`;
+
+const ModalFooter = styled.div`
+    padding: 20px 25px;
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+    display: flex;
+    justify-content: flex-end;
+    gap: 12px;
+`;
+
+const ModalButton = styled.button<{ secondary?: boolean }>`
+    background: ${props => props.secondary 
+        ? 'rgba(255, 255, 255, 0.1)' 
+        : 'linear-gradient(135deg, #88FB47 0%, #27C151 100%)'};
+    color: ${props => props.secondary ? '#fff' : 'white'};
+    border: ${props => props.secondary ? '1px solid rgba(255, 255, 255, 0.2)' : 'none'};
+    border-radius: 8px;
+    padding: 12px 24px;
+    font-family: "ChakraPetch-Regular";
+    font-size: 16px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.3s ease;
+
+    &:hover {
+        transform: translateY(-2px);
+        box-shadow: ${props => props.secondary 
+            ? '0 5px 15px rgba(255, 255, 255, 0.1)' 
+            : '0 5px 15px rgba(136, 251, 71, 0.3)'};
+    }
+`;
+
+const LoadingMessage = styled.div`
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 16px;
+    color: #F89D09;
+    font-family: "ChakraPetch-Regular";
+    font-size: 16px;
+    text-align: center;
+    padding: 20px;
+`;
+
+const Spinner = styled.div`
+    width: 40px;
+    height: 40px;
+    border: 3px solid rgba(248, 157, 9, 0.3);
+    border-top: 3px solid #F89D09;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+
+    @keyframes spin {
+        0% { transform: rotate(0deg); }
+        100% { transform: rotate(360deg); }
+    }
+`;
+
+const LoadingSubtext = styled.div`
+    color: #737591;
+    font-size: 14px;
+`;
+
+const ErrorMessage = styled.div`
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    background: rgba(255, 59, 59, 0.1);
+    border: 1px solid rgba(255, 59, 59, 0.3);
+    border-radius: 8px;
+    padding: 20px;
+`;
+
+const ErrorIcon = styled.div`
+    font-size: 24px;
+    flex-shrink: 0;
+    margin-top: 2px;
+`;
+
+const ErrorMessageContent = styled.div`
+    flex: 1;
+`;
+
+const ErrorMessageTitle = styled.div`
+    color: #ff3b3b;
+    font-family: "ChakraPetch-Regular";
+    font-size: 16px;
+    font-weight: 600;
+    margin-bottom: 8px;
+`;
+
+const ErrorMessageText = styled.div`
+    color: #ff3b3b;
+    font-family: "ChakraPetch-Regular";
+    font-size: 14px;
+    line-height: 1.4;
+`;
+
+const ResultsContainer = styled.div`
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+`;
+
+const ResultsHeader = styled.div<{ success: boolean }>`
+    background: ${props => props.success 
+        ? 'rgba(136, 251, 71, 0.1)' 
+        : 'rgba(248, 157, 9, 0.1)'};
+    border: 1px solid ${props => props.success 
+        ? 'rgba(136, 251, 71, 0.3)' 
+        : 'rgba(248, 157, 9, 0.3)'};
+    border-radius: 10px;
+    padding: 20px;
+`;
+
+const ResultsTitle = styled.h3`
+    color: #fff;
+    font-family: "ChakraPetch-Regular";
+    font-size: 18px;
+    margin: 0 0 15px 0;
+    text-align: center;
+`;
+
+const ResultsSummary = styled.div`
+    display: flex;
+    gap: 15px;
+    justify-content: center;
+    flex-wrap: wrap;
+`;
+
+const SummaryItem = styled.div<{ success?: boolean; error?: boolean }>`
+    background: ${props => {
+        if (props.success) return 'rgba(136, 251, 71, 0.2)';
+        if (props.error) return 'rgba(255, 59, 59, 0.2)';
+        return 'rgba(255, 255, 255, 0.1)';
+    }};
+    color: ${props => {
+        if (props.success) return '#88FB47';
+        if (props.error) return '#ff3b3b';
+        return '#fff';
+    }};
+    border: 1px solid ${props => {
+        if (props.success) return 'rgba(136, 251, 71, 0.3)';
+        if (props.error) return 'rgba(255, 59, 59, 0.3)';
+        return 'rgba(255, 255, 255, 0.2)';
+    }};
+    border-radius: 8px;
+    padding: 10px 15px;
+    font-family: "ChakraPetch-Regular";
+    font-size: 14px;
+    font-weight: 600;
+`;
+
+const ResultsList = styled.div`
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+`;
+
+const ResultItem = styled.div<{ success: boolean }>`
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid ${props => props.success 
+        ? 'rgba(136, 251, 71, 0.2)' 
+        : 'rgba(255, 59, 59, 0.2)'};
+    border-radius: 8px;
+    padding: 15px;
+`;
+
+const ResultHeader = styled.div`
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 10px;
+`;
+
+const ResultService = styled.div`
+    color: #fff;
+    font-family: "ChakraPetch-Regular";
+    font-size: 16px;
+    font-weight: 600;
+`;
+
+const ResultStatus = styled.div`
+    font-family: "ChakraPetch-Regular";
+    font-size: 14px;
+    font-weight: 600;
+`;
+
+const ResultDetails = styled.div`
+    margin-top: 8px;
+    display: flex;
+    gap: 8px;
+    align-items: flex-start;
+`;
+
+const ResultLabel = styled.div`
+    color: #737591;
+    font-family: "ChakraPetch-Regular";
+    font-size: 12px;
+    font-weight: 600;
+    min-width: 60px;
+    flex-shrink: 0;
+`;
+
+const ResultPins = styled.div`
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    flex: 1;
+`;
+
+const PinCode = styled.div`
+    background: rgba(136, 251, 71, 0.1);
+    color: #88FB47;
+    border: 1px solid rgba(136, 251, 71, 0.3);
+    border-radius: 4px;
+    padding: 6px 10px;
+    font-family: "ChakraPetch-Regular";
+    font-size: 12px;
+    font-weight: 600;
+    word-break: break-all;
+`;
+
+const ResultData = styled.div`
+    color: #88FB47;
+    font-family: "ChakraPetch-Regular";
+    font-size: 12px;
+    flex: 1;
+    word-break: break-all;
+`;
+
+const ResultError = styled.div`
+    color: #ff3b3b;
+    font-family: "ChakraPetch-Regular";
+    font-size: 12px;
+    flex: 1;
+    word-break: break-all;
 `;

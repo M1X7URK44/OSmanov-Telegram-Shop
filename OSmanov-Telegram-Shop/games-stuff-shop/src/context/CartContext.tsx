@@ -4,6 +4,7 @@ import type { ServiceItem } from '../types/api.types';
 
 export interface CartItem extends ServiceItem {
   quantity: number;
+  userData?: string; // Добавляем поле для данных пользователя (Steam логин и т.д.)
 }
 
 interface CartState {
@@ -15,15 +16,22 @@ type CartAction =
   | { type: 'ADD_ITEM'; payload: ServiceItem }
   | { type: 'REMOVE_ITEM'; payload: number }
   | { type: 'UPDATE_QUANTITY'; payload: { serviceId: number; quantity: number } }
-  | { type: 'CLEAR_CART' };
+  | { type: 'UPDATE_USER_DATA'; payload: { serviceId: number; userData: string } }
+  | { type: 'CLEAR_CART' }
+  | { type: 'SET_ITEMS'; payload: CartItem[] };
 
 interface CartContextType {
   state: CartState;
   addItem: (item: ServiceItem) => void;
   removeItem: (serviceId: number) => void;
   updateQuantity: (serviceId: number, quantity: number) => void;
+  updateUserData: (serviceId: number, userData: string) => void;
   clearCart: () => void;
+  setItems: (items: CartItem[]) => void;
   getItemQuantity: (serviceId: number) => number;
+  getUserData: (serviceId: number) => string | undefined;
+  getItemCount: () => number;
+  requiresUserData: (serviceName: string) => boolean;
 }
 
 const CartContext = createContext<CartContextType | undefined>(undefined);
@@ -49,7 +57,11 @@ const cartReducer = (state: CartState, action: CartAction): CartState => {
         };
       } else {
         // Добавляем новый товар
-        const newItem: CartItem = { ...action.payload, quantity: 1 };
+        const newItem: CartItem = { 
+          ...action.payload, 
+          quantity: 1,
+          userData: requiresUserData(action.payload.service_name) ? '' : undefined
+        };
         const updatedItems = [...state.items, newItem];
         
         return {
@@ -91,6 +103,27 @@ const cartReducer = (state: CartState, action: CartAction): CartState => {
       };
     }
     
+    case 'UPDATE_USER_DATA': {
+      const { serviceId, userData } = action.payload;
+      const updatedItems = state.items.map(item =>
+        item.service_id === serviceId
+          ? { ...item, userData }
+          : item
+      );
+      
+      return {
+        ...state,
+        items: updatedItems
+      };
+    }
+    
+    case 'SET_ITEMS': {
+      return {
+        items: action.payload,
+        total: calculateTotal(action.payload)
+      };
+    }
+    
     case 'CLEAR_CART':
       return {
         items: [],
@@ -108,6 +141,16 @@ const calculateTotal = (items: CartItem[]): number => {
     const price = item.price || 0;
     return total + (price * item.quantity);
   }, 0);
+};
+
+// Функция для проверки, требуется ли ввод данных пользователя
+const requiresUserData = (serviceName: string): boolean => {
+  const lowerName = serviceName.toLowerCase();
+  return lowerName.includes('steam') || 
+         lowerName.includes('account') || 
+         lowerName.includes('login') ||
+         lowerName.includes('аккаунт') ||
+         lowerName.includes('логин');
 };
 
 // Провайдер контекста
@@ -129,13 +172,30 @@ export const CartProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     dispatch({ type: 'UPDATE_QUANTITY', payload: { serviceId, quantity } });
   };
 
+  const updateUserData = (serviceId: number, userData: string) => {
+    dispatch({ type: 'UPDATE_USER_DATA', payload: { serviceId, userData } });
+  };
+
   const clearCart = () => {
     dispatch({ type: 'CLEAR_CART' });
+  };
+
+  const setItems = (items: CartItem[]) => {
+    dispatch({ type: 'SET_ITEMS', payload: items });
   };
 
   const getItemQuantity = (serviceId: number): number => {
     const item = state.items.find(item => item.service_id === serviceId);
     return item ? item.quantity : 0;
+  };
+
+  const getUserData = (serviceId: number): string | undefined => {
+    const item = state.items.find(item => item.service_id === serviceId);
+    return item?.userData;
+  };
+
+  const getItemCount = (): number => {
+    return state.items.reduce((total, item) => total + item.quantity, 0);
   };
 
   return (
@@ -144,8 +204,13 @@ export const CartProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       addItem,
       removeItem,
       updateQuantity,
+      updateUserData,
       clearCart,
-      getItemQuantity
+      setItems,
+      getItemQuantity,
+      getUserData,
+      getItemCount,
+      requiresUserData
     }}>
       {children}
     </CartContext.Provider>
