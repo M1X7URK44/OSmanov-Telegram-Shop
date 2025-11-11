@@ -3,16 +3,17 @@ import { useSearchParams } from 'react-router-dom';
 import styled, { keyframes } from 'styled-components';
 import { userApi } from '../api/user.api';
 import { useUser } from '../context/UserContext';
-// import type { BalanceUpdateRequest } from '../types/api.types';
 import { cardLinkService } from '../services/cardlink.service';
 import { orderService } from '../services/orderService';
+import { useCurrency } from '../hooks/useCurrency';
 
 const ProfilePage: React.FC = () => {
   const { user, profile, loading, error, refreshUser, updateBalance } = useUser();
+  const { convertToRub, formatRubles, usdToRubRate, loading: ratesLoading } = useCurrency();
   
   const [addAmount, setAddAmount] = useState<string>('');
   const [updatingBalance, setUpdatingBalance] = useState<boolean>(false);
-  const [selectedPayment, setSelectedPayment] = useState<string>('card');
+  const [selectedPayment, setSelectedPayment] = useState<string>('cardlink');
 
   const [searchParams, setSearchParams] = useSearchParams();
   const [isAddingBalance, setIsAddingBalance] = useState<boolean>(false);
@@ -22,6 +23,9 @@ const ProfilePage: React.FC = () => {
 
   const [copyStatus, setCopyStatus] = useState<{ [key: string]: boolean }>({});
   const [loadingOrder, setLoadingOrder] = useState<{ [key: string]: boolean }>({});
+
+  const [convertedAmounts, setConvertedAmounts] = useState<{ [key: string]: number }>({});
+  const [convertedTotalSpent, setConvertedTotalSpent] = useState<number | null>(null);
 
   useEffect(() => {
     const shouldOpenTopUp = searchParams.get('topup') === 'true';
@@ -49,6 +53,49 @@ const ProfilePage: React.FC = () => {
       setSearchParams(searchParams);
     }
   }, [searchParams, setSearchParams, refreshUser]);
+
+  // Функция для конвертации всех покупок
+  useEffect(() => {
+    const convertPurchases = async () => {
+      if (!profile?.purchases || ratesLoading) return;
+
+      const converted: { [key: string]: number } = {};
+      
+      for (const purchase of profile.purchases) {
+        try {
+          const rubAmount = await convertToRub(purchase.amount, purchase.currency);
+          converted[purchase.id] = rubAmount;
+        } catch (err) {
+          console.error(`Error converting purchase ${purchase.id}:`, err);
+          // Используем примерный курс если конвертация не удалась
+          converted[purchase.id] = purchase.amount * (usdToRubRate || 90);
+        }
+      }
+      
+      setConvertedAmounts(converted);
+    };
+
+    convertPurchases();
+  }, [profile?.purchases, convertToRub, ratesLoading, usdToRubRate]);
+
+  // Добавим useEffect для конвертации total_spent
+  useEffect(() => {
+    const convertTotalSpent = async () => {
+      if (!user?.total_spent || ratesLoading) return;
+
+      try {
+        // Предполагаем, что total_spent в USD (как в вашей БД)
+        const rubAmount = await convertToRub(user.total_spent, 'USD');
+        setConvertedTotalSpent(rubAmount);
+      } catch (err) {
+        console.error('Error converting total spent:', err);
+        // Fallback на примерный курс
+        setConvertedTotalSpent(user.total_spent * (usdToRubRate || 90));
+      }
+    };
+
+    convertTotalSpent();
+  }, [user?.total_spent, convertToRub, ratesLoading, usdToRubRate]);
 
   // 🔒 Эффект для блокировки скролла при открытом модальном окне
   useEffect(() => {
@@ -307,12 +354,18 @@ const ProfilePage: React.FC = () => {
     });
   };
 
-  const formatCurrency = (amount: number, currency: string) => {
-    return new Intl.NumberFormat('ru-RU', {
-      style: 'currency',
-      currency: currency
-    }).format(amount);
-  };
+  // const formatCurrency = (amount: number, currency: string, purchaseId?: number) => {
+  //   // Если есть конвертированная сумма в рублях, показываем её
+  //   if (purchaseId && convertedAmounts[purchaseId]) {
+  //     return formatRubles(convertedAmounts[purchaseId]);
+  //   }
+    
+  //   // Иначе показываем оригинальную валюту
+  //   return new Intl.NumberFormat('ru-RU', {
+  //     style: 'currency',
+  //     currency: currency
+  //   }).format(amount);
+  // };
 
   if (loading) {
     return (
@@ -387,7 +440,12 @@ const ProfilePage: React.FC = () => {
         <BalanceStats>
           <StatItem>
             <StatLabel>Всего потрачено</StatLabel>
-            <StatValue>{user.total_spent.toLocaleString('ru-RU')} ₽</StatValue>
+            <StatValue>
+              {convertedTotalSpent !== null 
+                ? formatRubles(convertedTotalSpent)
+                : `${user.total_spent.toLocaleString('ru-RU')} USD`
+              }
+            </StatValue>
           </StatItem>
           <StatItem>
             <StatLabel>Транзакций</StatLabel>
@@ -530,11 +588,21 @@ const ProfilePage: React.FC = () => {
               <PurchaseInfo>
                 <PurchaseName>{purchase.service_name}</PurchaseName>
                 <PurchaseDate>{formatDate(purchase.purchase_date)}</PurchaseDate>
+                {/* Показываем оригинальную сумму маленьким текстом */}
+                <OriginalAmount>
+                  {new Intl.NumberFormat('ru-RU', {
+                    style: 'currency',
+                    currency: purchase.currency
+                  }).format(purchase.amount)}
+                </OriginalAmount>
               </PurchaseInfo>
               
               <PurchaseDetails>
                 <PurchaseAmount>
-                  {formatCurrency(purchase.amount, purchase.currency)}
+                  {purchase.id in convertedAmounts 
+                    ? formatRubles(convertedAmounts[purchase.id])
+                    : 'Загрузка...'
+                  }
                 </PurchaseAmount>
                 <PurchaseStatus $color={getStatusColor(purchase.status)}>
                   {getStatusText(purchase.status)}
@@ -1303,4 +1371,11 @@ const CopySpinner = styled.div`
     0% { transform: rotate(0deg); }
     100% { transform: rotate(360deg); }
   }
+`;
+
+const OriginalAmount = styled.div`
+  color: #737591;
+  font-family: "ChakraPetch-Regular";
+  font-size: 12px;
+  margin-top: 2px;
 `;

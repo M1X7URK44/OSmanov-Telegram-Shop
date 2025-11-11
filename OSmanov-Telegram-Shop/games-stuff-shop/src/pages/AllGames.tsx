@@ -13,7 +13,7 @@ import { CountryFlag } from "../utils/countryFlags";
 import AdvImage from "../assets/images/vpn-add.png";
 
 import CartButton from '../components/CartButton';
-// import { useCart } from "../context/CartContext";
+import { useCurrency } from '../hooks/useCurrency'; // Добавляем импорт
 
 const AllGamesPage: React.FC = () => {
     const [categories, setCategories] = useState<CategoryWithImage[]>([]);
@@ -23,7 +23,10 @@ const AllGamesPage: React.FC = () => {
     const [isServicesModalOpen, setIsServicesModalOpen] = useState(false);
     const [loading, setLoading] = useState(false);
     const [categoriesLoading, setCategoriesLoading] = useState(true);
-    // const { addItem } = useCart();
+    
+    // Добавляем хук для валюты
+    const { convertToRub, formatRubles, loading: ratesLoading } = useCurrency();
+    const [convertedPrices, setConvertedPrices] = useState<{ [key: string]: number }>({});
 
     useEffect(() => {
         const fetchCategories = async () => {
@@ -42,11 +45,64 @@ const AllGamesPage: React.FC = () => {
         fetchCategories();
     }, []);
 
+    // Эффект для конвертации цен сервисов
+    useEffect(() => {
+        const convertServicePrices = async () => {
+            if (!services.length || ratesLoading) return;
+
+            const converted: { [key: string]: number } = {};
+            
+            for (const service of services) {
+                if (service.price) {
+                    try {
+                        const rubPrice = await convertToRub(service.price, service.currency || 'USD');
+                        converted[service.service_id] = rubPrice;
+                    } catch (err) {
+                        console.error(`Error converting price for service ${service.service_id}:`, err);
+                        // Fallback на примерный курс
+                        converted[service.service_id] = service.price * 90;
+                    }
+                }
+            }
+            
+            setConvertedPrices(converted);
+        };
+
+        convertServicePrices();
+    }, [services, convertToRub, ratesLoading]);
+
+    // Функция для отображения цены
+    const renderPrice = (service: ServiceItem) => {
+        if (!service.price) return null;
+
+        const rubPrice = convertedPrices[service.service_id];
+        
+        if (rubPrice) {
+            return (
+                <ServicePrice>
+                    <RubPrice>{formatRubles(rubPrice)}</RubPrice>
+                    <OriginalPrice>
+                        {service.price} {service.currency || 'USD'}
+                    </OriginalPrice>
+                </ServicePrice>
+            );
+        } else {
+            return (
+                <ServicePrice>
+                    <OriginalPrice>
+                        {service.price} {service.currency || 'USD'}
+                    </OriginalPrice>
+                    {ratesLoading && <PriceLoading>...</PriceLoading>}
+                </ServicePrice>
+            );
+        }
+    };
+
     // Функция для блокировки скролла
     const disableScroll = () => {
         const scrollBarWidth = window.innerWidth - document.documentElement.clientWidth;
         document.body.style.overflow = 'hidden';
-        document.body.style.paddingRight = `${scrollBarWidth}px`; // Чтобы контент не прыгал
+        document.body.style.paddingRight = `${scrollBarWidth}px`;
     };
 
     // Функция для разблокировки скролла
@@ -79,6 +135,7 @@ const AllGamesPage: React.FC = () => {
         
         try {
             setLoading(true);
+            setConvertedPrices({}); // Сбрасываем конвертированные цены
             
             // Получаем сервисы по category_id (tagID)
             const response = await api.get<ServicesResponse>('/gifts/services/by-category', {
@@ -105,13 +162,8 @@ const AllGamesPage: React.FC = () => {
     const closeServicesModal = () => {
         setIsServicesModalOpen(false);
         setServices([]);
+        setConvertedPrices({}); // Очищаем конвертированные цены при закрытии
     };
-
-    // const handleServiceSelect = (service: ServiceItem) => {
-    //     console.log('Selected service:', service);
-    //     addItem(service);
-    //     closeServicesModal();
-    // };
 
     return (
         <>
@@ -212,13 +264,9 @@ const AllGamesPage: React.FC = () => {
                                                         {service.service_description}
                                                     </ServiceDescription>
                                                 )}
-                                                {service.price && (
-                                                    <ServicePrice>
-                                                        {service.price} {service.currency || 'USD'}
-                                                    </ServicePrice>
-                                                )}
+                                                {renderPrice(service)}
                                             </ServiceInfo>
-                                            <CartButton service={service} /> {/* Заменяем стрелку на CartButton */}
+                                            <CartButton service={service} />
                                         </ServiceItem>
                                     ))}
                                 </ServicesList>
@@ -305,6 +353,42 @@ const fadeIn = keyframes`
 `;
 
 // Styles
+
+// const ServiceArrow = styled.span`
+//     color: #88FB47;
+//     font-size: 18px;
+//     font-weight: bold;
+//     margin-left: 12px;
+// `;
+
+const ServicePrice = styled.div`
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    margin-top: 4px;
+`;
+
+const RubPrice = styled.span`
+    color: #88FB47;
+    font-size: 14px;
+    font-weight: 600;
+    font-family: "ChakraPetch-Regular";
+`;
+
+const OriginalPrice = styled.span`
+    color: #737591;
+    font-size: 12px;
+    font-family: "ChakraPetch-Regular";
+`;
+
+const PriceLoading = styled.span`
+    color: #737591;
+    font-size: 12px;
+    font-family: "ChakraPetch-Regular";
+    font-style: italic;
+`;
+
+// Остальные стили остаются без изменений:
 const AdvBlock = styled.div`
     display: flex;
     flex-direction: row;
@@ -572,17 +656,3 @@ const ServiceDescription = styled.span`
     font-size: 14px;
     font-family: "ChakraPetch-Regular";
 `;
-
-const ServicePrice = styled.span`
-    color: #88FB47;
-    font-size: 14px;
-    font-weight: 600;
-    font-family: "ChakraPetch-Regular";
-`;
-
-// const ServiceArrow = styled.span`
-//     color: #88FB47;
-//     font-size: 18px;
-//     font-weight: bold;
-//     margin-left: 12px;
-// `;
