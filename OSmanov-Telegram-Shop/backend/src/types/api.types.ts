@@ -27,3 +27,20 @@ export interface ApiResponse<T> {
   status: string;
   message?: string;
 }
+
+
+export interface OrderInfo {
+  custom_id: string;
+  status: number;
+  status_message: string;
+  product: string;
+  quantity: number;
+  total_price: number;
+  data?: string; // Для Steam и подобных сервисов
+  pins?: string[]; // Для gift cards
+  [key: string]: any; // для дополнительных полей
+}
+
+export interface OrderInfoRequest {
+  custom_id: string;
+}

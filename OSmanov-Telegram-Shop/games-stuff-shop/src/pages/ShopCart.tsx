@@ -100,7 +100,7 @@ const ShopCartPage: React.FC = () => {
                 </TotalSummary>
                 
                 <CheckoutButton onClick={handleCheckout}>
-                    Перейти к оплате
+                    Купить
                 </CheckoutButton>
             </CartSummary>
         </CartContainer>

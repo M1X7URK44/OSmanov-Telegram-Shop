@@ -270,3 +270,5 @@ dist
 # Temporary folders
 tmp/
 temp/
+
+*.py

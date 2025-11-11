@@ -91,7 +91,7 @@ const ProfilePage: React.FC = () => {
         setPaymentStatus('Перенаправление на страницу оплаты...');
         
         // Открываем ссылку в новом окне
-        const paymentWindow = window.open(paymentResult.link_page_url, '_blank', 'width=600,height=700');
+        const paymentWindow = window.open(paymentResult.link_page_url); //, '_blank', 'width=600,height=700');
         
         if (paymentWindow) {
           // Запускаем проверку статуса платежа
@@ -122,7 +122,7 @@ const ProfilePage: React.FC = () => {
     const checkInterval = setInterval(async () => {
       try {
         checkCount++;
-        setPaymentStatus(`Проверка статуса платежа... (${checkCount})`);
+        setPaymentStatus(`Проверка статуса платежа...`);
         
         const status = await cardLinkService.checkPaymentStatus(billId);
         

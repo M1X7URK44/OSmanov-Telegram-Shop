@@ -1,5 +1,5 @@
 import axios, { AxiosResponse } from 'axios';
-import { Credentials, AuthResponse, Category, Service, ApiResponse } from '../types/api.types';
+import { Credentials, AuthResponse, Category, Service, OrderInfo } from '../types/api.types';
 
 const MAIN_URL = 'https://api.ns.gifts';
 
@@ -65,6 +65,19 @@ class GiftsApiService {
     };
 
     return await this.makeRequest(url, 'POST', headers, data);
+  }
+
+  async getOrderInfo(token: string, custom_id: string): Promise<OrderInfo> {
+    const url = `${MAIN_URL}/api/v1/order_info`;
+    const headers = {
+      'Authorization': `Bearer ${token}`,
+      'Content-Type': 'application/json'
+    };
+    const data = {
+      custom_id
+    };
+
+    return await this.makeRequest<OrderInfo>(url, 'POST', headers, data);
   }
 }
 
