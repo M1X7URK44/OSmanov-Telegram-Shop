@@ -347,6 +347,24 @@ class OrderService {
       return total + (price * item.quantity);
     }, 0);
   }
+
+
+  async getOrderInfoByCustomId(custom_id: string): Promise<OrderInfoResponse> {
+    const response = await fetch(`${this.baseUrl}/gifts/order-info-by-custom-id`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ custom_id }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to get order info: ${response.statusText}`);
+    }
+
+    const result = await response.json();
+    return result.data;
+  }
 }
 
 export const orderService = new OrderService();

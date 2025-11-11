@@ -15,4 +15,6 @@ router.post('/create-order', giftsController.createOrder.bind(giftsController));
 router.post('/pay-order', giftsController.payOrder.bind(giftsController));
 router.post('/checkout', giftsController.checkout.bind(giftsController));
 
+router.post('/order-info-by-custom-id', giftsController.getOrderInfoByCustomId.bind(giftsController));
+
 export const giftsRoutes = router;

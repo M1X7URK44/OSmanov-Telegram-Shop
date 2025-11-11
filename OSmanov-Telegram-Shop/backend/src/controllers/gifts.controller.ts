@@ -402,6 +402,38 @@ export class GiftsController {
       });
     }
   }
+
+  async getOrderInfoByCustomId(req: Request, res: Response): Promise<void> {
+    try {
+      const { custom_id } = req.body;
+
+      if (!custom_id) {
+        res.status(400).json({
+          status: 'error',
+          message: 'custom_id is required'
+        });
+        return;
+      }
+
+      console.log(`📦 Fetching detailed order info for: ${custom_id}`);
+      
+      const token = await giftsApiService.getAuthToken();
+      const orderInfo = await giftsApiService.getOrderInfo(token, custom_id);
+      
+      console.log(`✅ Detailed order info retrieved for ${custom_id}`);
+      
+      res.json({
+        status: 'success',
+        data: orderInfo
+      });
+    } catch (error) {
+      console.error('❌ Error fetching detailed order info:', error);
+      res.status(500).json({
+        status: 'error',
+        message: 'Failed to fetch detailed order information'
+      });
+    }
+  }
 }
 
 export const giftsController = new GiftsController();

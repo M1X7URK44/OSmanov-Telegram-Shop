@@ -5,6 +5,7 @@ import { userApi } from '../api/user.api';
 import { useUser } from '../context/UserContext';
 // import type { BalanceUpdateRequest } from '../types/api.types';
 import { cardLinkService } from '../services/cardlink.service';
+import { orderService } from '../services/orderService';
 
 const ProfilePage: React.FC = () => {
   const { user, profile, loading, error, refreshUser, updateBalance } = useUser();
@@ -18,6 +19,9 @@ const ProfilePage: React.FC = () => {
 
   const [processingCardLink, setProcessingCardLink] = useState<boolean>(false);
   const [paymentStatus, setPaymentStatus] = useState<string>('');
+
+  const [copyStatus, setCopyStatus] = useState<{ [key: string]: boolean }>({});
+  const [loadingOrder, setLoadingOrder] = useState<{ [key: string]: boolean }>({});
 
   useEffect(() => {
     const shouldOpenTopUp = searchParams.get('topup') === 'true';
@@ -59,7 +63,62 @@ const ProfilePage: React.FC = () => {
     };
   }, [isAddingBalance]);
 
+  // Функция для копирования информации о заказе
+  const handleCopyOrderInfo = async (purchase: any) => {
+    if (!purchase.custom_id) {
+      alert('Информация о заказе недоступна');
+      return;
+    }
 
+    setLoadingOrder(prev => ({ ...prev, [purchase.id]: true }));
+
+    try {
+      // Получаем детальную информацию о заказе
+      const orderInfo = await orderService.getOrderInfoByCustomId(purchase.custom_id);
+      
+      // Форматируем данные для копирования
+      const textToCopy = formatOrderInfoForCopy(orderInfo, purchase);
+      
+      // Копируем в буфер обмена
+      await navigator.clipboard.writeText(textToCopy);
+      
+      // Показываем статус успешного копирования
+      setCopyStatus(prev => ({ ...prev, [purchase.id]: true }));
+      setTimeout(() => {
+        setCopyStatus(prev => ({ ...prev, [purchase.id]: false }));
+      }, 2000);
+
+    } catch (error) {
+      console.error('Error copying order info:', error);
+      alert('Не удалось получить информацию о заказе');
+    } finally {
+      setLoadingOrder(prev => ({ ...prev, [purchase.id]: false }));
+    }
+  };
+
+  // Функция для форматирования текста для копирования
+  const formatOrderInfoForCopy = (orderInfo: any, purchase: any): string => {
+    const lines = [
+      `🛒 Детали покупки`,
+      `📦 Товар: ${purchase.service_name}`,
+      `💰 Сумма: ${purchase.amount} ${purchase.currency}`,
+      `📅 Дата: ${new Date(purchase.purchase_date).toLocaleDateString('ru-RU')}`,
+      `🆔 ID заказа: ${purchase.custom_id}`,
+      `📊 Статус: ${orderInfo.status_message}`,
+    ];
+
+    // Добавляем PIN коды если есть
+    if (orderInfo.pins && orderInfo.pins.length > 0) {
+      lines.push(`🔑 PIN коды: ${orderInfo.pins.join(', ')}`);
+    }
+
+    // Добавляем данные если есть
+    if (orderInfo.data) {
+      lines.push(`📝 Данные: ${orderInfo.data}`);
+    }
+
+    return lines.join('\n');
+  };
   
   // Обновленная функция handleCardLinkPayment
   const handleCardLinkPayment = async () => {
@@ -385,7 +444,7 @@ const ProfilePage: React.FC = () => {
                 </PaymentMethod>
                 
                 {/* Существующие методы оплаты */}
-                <PaymentMethod 
+                {/* <PaymentMethod 
                   $isSelected={selectedPayment === 'card'}
                   onClick={() => setSelectedPayment('card')}
                 >
@@ -402,9 +461,9 @@ const ProfilePage: React.FC = () => {
                       <PaymentDescription>Visa, Mastercard, МИР</PaymentDescription>
                     </PaymentInfo>
                   </PaymentLabel>
-                </PaymentMethod>
+                </PaymentMethod> */}
                 
-                <PaymentMethod 
+                {/* <PaymentMethod 
                   $isSelected={selectedPayment === 'yoomoney'}
                   onClick={() => setSelectedPayment('yoomoney')}
                 >
@@ -421,7 +480,7 @@ const ProfilePage: React.FC = () => {
                       <PaymentDescription>Кошелек ЮMoney</PaymentDescription>
                     </PaymentInfo>
                   </PaymentLabel>
-                </PaymentMethod>
+                </PaymentMethod> */}
               </PaymentMethods>
               
               {/* Добавляем отображение статуса платежа */}
@@ -459,7 +518,13 @@ const ProfilePage: React.FC = () => {
         
         <PurchasesList>
           {purchases.map((purchase) => (
-            <PurchaseItem key={purchase.id}>
+            <PurchaseItem 
+                key={purchase.id} 
+                onClick={() => handleCopyOrderInfo(purchase)} 
+                style={{
+                  background: copyStatus[purchase.id] ? 'rgba(136, 251, 71, 0.1)' : undefined,
+                  borderColor: copyStatus[purchase.id] ? 'rgba(136, 251, 71, 0.3)' : undefined
+              }}>
               <PurchaseIcon>🎮</PurchaseIcon>
               
               <PurchaseInfo>
@@ -474,6 +539,16 @@ const ProfilePage: React.FC = () => {
                 <PurchaseStatus $color={getStatusColor(purchase.status)}>
                   {getStatusText(purchase.status)}
                 </PurchaseStatus>
+
+                <CopyIndicator>
+                  {loadingOrder[purchase.id] ? (
+                    <CopySpinner />
+                  ) : copyStatus[purchase.id] ? (
+                    '✅ Скопировано!'
+                  ) : (
+                    '📋 Нажмите для копирования'
+                  )}
+                </CopyIndicator>
               </PurchaseDetails>
             </PurchaseItem>
           ))}
@@ -767,6 +842,7 @@ const PurchaseItem = styled.div`
   border: 1px solid rgba(255, 255, 255, 0.05);
   border-radius: 15px;
   transition: all 0.3s ease;
+  cursor: pointer;
 
   &:hover {
     background: rgba(255, 255, 255, 0.05);
@@ -809,6 +885,7 @@ const PurchaseDetails = styled.div`
   flex-direction: column;
   align-items: flex-end;
   gap: 4px;
+  min-width: 120px;
 `;
 
 const PurchaseAmount = styled.span`
@@ -1193,6 +1270,34 @@ const StatusSpinner = styled.div`
   border-top: 2px solid #88FB47;
   border-radius: 50%;
   animation: spin 1s linear infinite;
+  
+  @keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+  }
+`;
+
+
+const CopyIndicator = styled.div`
+  color: #88FB47;
+  font-family: "ChakraPetch-Regular";
+  font-size: 11px;
+  text-align: center;
+  margin-top: 8px;
+  padding: 4px 8px;
+  background: rgba(136, 251, 71, 0.1);
+  border-radius: 6px;
+  transition: all 0.3s ease;
+`;
+
+const CopySpinner = styled.div`
+  width: 12px;
+  height: 12px;
+  border: 2px solid rgba(136, 251, 71, 0.3);
+  border-top: 2px solid #88FB47;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+  margin: 0 auto;
   
   @keyframes spin {
     0% { transform: rotate(0deg); }
