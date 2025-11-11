@@ -32,6 +32,11 @@ services:
       - DB_PORT=5432
       - PORT=5000
       - NODE_ENV=production
+
+      - CARD_LINK_TOKEN=32669|PlRcSmjK8R45z2AYTLpFLUNtVm7PmfqPvdzjRg8V
+      - CARD_LINK_SHOP_ID=bxvA66LmJk
+      - CARD_LINK_BASE_URL=https://cardlink.link/api/v1
+      - FRONTEND_URL=https://t.me/osGift_bot
     depends_on:
       postgres:
         condition: service_healthy

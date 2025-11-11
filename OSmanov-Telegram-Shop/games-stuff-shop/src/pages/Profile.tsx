@@ -3,7 +3,8 @@ import { useSearchParams } from 'react-router-dom';
 import styled, { keyframes } from 'styled-components';
 import { userApi } from '../api/user.api';
 import { useUser } from '../context/UserContext';
-import type { BalanceUpdateRequest } from '../types/api.types';
+// import type { BalanceUpdateRequest } from '../types/api.types';
+import { cardLinkService } from '../services/cardlink.service';
 
 const ProfilePage: React.FC = () => {
   const { user, profile, loading, error, refreshUser, updateBalance } = useUser();
@@ -15,8 +16,13 @@ const ProfilePage: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const [isAddingBalance, setIsAddingBalance] = useState<boolean>(false);
 
+  const [processingCardLink, setProcessingCardLink] = useState<boolean>(false);
+  const [paymentStatus, setPaymentStatus] = useState<string>('');
+
   useEffect(() => {
     const shouldOpenTopUp = searchParams.get('topup') === 'true';
+    const paymentStatus = searchParams.get('payment');
+    
     if (shouldOpenTopUp) {
       const timer = setTimeout(() => {
         setIsAddingBalance(true);
@@ -26,7 +32,19 @@ const ProfilePage: React.FC = () => {
       
       return () => clearTimeout(timer);
     }
-  }, [searchParams, setSearchParams]);
+    
+    // Обработка редиректа после оплаты
+    if (paymentStatus === 'success') {
+      alert('Платеж успешно завершен!');
+      searchParams.delete('payment');
+      setSearchParams(searchParams);
+      refreshUser(); // Обновляем данные пользователя
+    } else if (paymentStatus === 'failed') {
+      alert('Платеж не прошел. Пожалуйста, попробуйте еще раз.');
+      searchParams.delete('payment');
+      setSearchParams(searchParams);
+    }
+  }, [searchParams, setSearchParams, refreshUser]);
 
   // 🔒 Эффект для блокировки скролла при открытом модальном окне
   useEffect(() => {
@@ -41,37 +59,166 @@ const ProfilePage: React.FC = () => {
     };
   }, [isAddingBalance]);
 
-  const handleAddBalance = async () => {
+
+  
+  // Обновленная функция handleCardLinkPayment
+  const handleCardLinkPayment = async () => {
     if (!addAmount || isNaN(Number(addAmount)) || Number(addAmount) <= 0) {
       alert('Пожалуйста, введите корректную сумму');
       return;
     }
 
-    try {
-      setUpdatingBalance(true);
-      const amount = Number(addAmount);
-      
-      const balanceUpdate: BalanceUpdateRequest = {
-        amount: amount,
-        payment_method: 'bank_card'
-      };
+    if (!user) {
+      alert('Пользователь не найден');
+      return;
+    }
 
-      const userId = 1; // Временно используем ID 1
-      const response = await userApi.updateBalance(userId, balanceUpdate);
+    try {
+      setProcessingCardLink(true);
+      setPaymentStatus('Создание платежа...');
       
-      // Обновляем баланс через контекст
-      updateBalance(response.user.balance);
+      const amount = Number(addAmount);
+      const orderId = `balance_${user.id}_${Date.now()}`;
       
-      setIsAddingBalance(false);
-      setAddAmount('');
-      alert(`Баланс успешно пополнен на ${amount} ₽`);
+      const paymentResult = await cardLinkService.createPayment(
+        amount,
+        orderId,
+        `Пополнение баланса на ${amount} ₽`,
+        user.id
+      );
+
+      if (paymentResult.success && paymentResult.link_page_url && paymentResult.bill_id) {
+        setPaymentStatus('Перенаправление на страницу оплаты...');
+        
+        // Открываем ссылку в новом окне
+        const paymentWindow = window.open(paymentResult.link_page_url, '_blank', 'width=600,height=700');
+        
+        if (paymentWindow) {
+          // Запускаем проверку статуса платежа
+          startPaymentStatusCheck(paymentResult.bill_id, amount);
+        } else {
+          alert('Пожалуйста, разрешите всплывающие окна для этого сайта');
+          setProcessingCardLink(false);
+          setPaymentStatus('');
+        }
+      } else {
+        alert(paymentResult.error || 'Ошибка при создании платежа');
+        setProcessingCardLink(false);
+        setPaymentStatus('');
+      }
     } catch (err) {
-      console.error('Error updating balance:', err);
-      alert('Ошибка при пополнении баланса');
-    } finally {
-      setUpdatingBalance(false);
+      console.error('Error processing CardLink payment:', err);
+      alert('Ошибка при обработке платежа');
+      setProcessingCardLink(false);
+      setPaymentStatus('');
     }
   };
+
+  // Упрощенная функция для проверки статуса платежа
+  const startPaymentStatusCheck = (billId: string, amount: number) => {
+    let checkCount = 0;
+    const maxChecks = 120; // 10 минут (120 * 5 секунд)
+    
+    const checkInterval = setInterval(async () => {
+      try {
+        checkCount++;
+        setPaymentStatus(`Проверка статуса платежа... (${checkCount})`);
+        
+        const status = await cardLinkService.checkPaymentStatus(billId);
+        
+        if (status.success) {
+          if (status.is_paid) {
+            // Платеж успешен
+            clearInterval(checkInterval);
+            setProcessingCardLink(false);
+            setPaymentStatus('Платеж успешно завершен!');
+            
+            // Обновляем баланс
+            const balanceUpdate = {
+              amount: amount,
+              payment_method: 'cardlink',
+            };
+            
+            if (user) {
+              const response = await userApi.updateBalance(user.id, balanceUpdate);
+              updateBalance(response.user.balance);
+              
+              // Закрываем модалку и показываем уведомление
+              setTimeout(() => {
+                setIsAddingBalance(false);
+                setAddAmount('');
+                setPaymentStatus('');
+                alert(`Баланс успешно пополнен на ${amount} ₽`);
+              }, 1000);
+            }
+            
+          } else if (status.is_failed) {
+            // Платеж не прошел
+            clearInterval(checkInterval);
+            setProcessingCardLink(false);
+            setPaymentStatus('Платеж не прошел');
+            
+            setTimeout(() => {
+              setPaymentStatus('');
+            }, 3000);
+          }
+          // Если платеж в обработке - продолжаем проверять
+        }
+        
+        // Останавливаем проверку после максимального количества попыток
+        if (checkCount >= maxChecks) {
+          clearInterval(checkInterval);
+          setProcessingCardLink(false);
+          setPaymentStatus('Время проверки истекло');
+          
+          setTimeout(() => {
+            setPaymentStatus('');
+          }, 3000);
+        }
+        
+      } catch (error) {
+        console.error('Error checking payment status:', error);
+      }
+    }, 5000); // Проверяем каждые 5 секунд
+  };
+
+  // Обновленная функция handleAddBalance
+  const handleAddBalance = async () => {
+    if (selectedPayment === 'cardlink') {
+      await handleCardLinkPayment();
+    } else {
+      // Старая логика для других методов оплаты
+      if (!addAmount || isNaN(Number(addAmount)) || Number(addAmount) <= 0) {
+        alert('Пожалуйста, введите корректную сумму');
+        return;
+      }
+
+      try {
+        setUpdatingBalance(true);
+        const amount = Number(addAmount);
+        
+        const balanceUpdate = {
+          amount: amount,
+          payment_method: selectedPayment as 'bank_card' | 'yoomoney',
+        };
+
+        const userId = user?.id || 1;
+        const response = await userApi.updateBalance(userId, balanceUpdate);
+        
+        updateBalance(response.user.balance);
+        
+        setIsAddingBalance(false);
+        setAddAmount('');
+        alert(`Баланс успешно пополнен на ${amount} ₽`);
+      } catch (err) {
+        console.error('Error updating balance:', err);
+        alert('Ошибка при пополнении баланса');
+      } finally {
+        setUpdatingBalance(false);
+      }
+    }
+  };
+
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -217,6 +364,27 @@ const ProfilePage: React.FC = () => {
               </QuickAmounts>
               
               <PaymentMethods>
+                {/* НОВЫЙ метод оплаты CardLink */}
+                <PaymentMethod 
+                  $isSelected={selectedPayment === 'cardlink'}
+                  onClick={() => setSelectedPayment('cardlink')}
+                >
+                  <PaymentRadio 
+                    type="radio" 
+                    name="payment" 
+                    checked={selectedPayment === 'cardlink'}
+                    onChange={() => setSelectedPayment('cardlink')}
+                  />
+                  <PaymentLabel>
+                    <PaymentIcon>🔗</PaymentIcon>
+                    <PaymentInfo>
+                      <PaymentName>CardLink</PaymentName>
+                      <PaymentDescription>Банковские карты, СБП</PaymentDescription>
+                    </PaymentInfo>
+                  </PaymentLabel>
+                </PaymentMethod>
+                
+                {/* Существующие методы оплаты */}
                 <PaymentMethod 
                   $isSelected={selectedPayment === 'card'}
                   onClick={() => setSelectedPayment('card')}
@@ -255,6 +423,14 @@ const ProfilePage: React.FC = () => {
                   </PaymentLabel>
                 </PaymentMethod>
               </PaymentMethods>
+              
+              {/* Добавляем отображение статуса платежа */}
+              {paymentStatus && (
+                <PaymentStatus>
+                  <StatusText>{paymentStatus}</StatusText>
+                  {processingCardLink && <StatusSpinner />}
+                </PaymentStatus>
+              )}
             </ModalBody>
             
             <ModalFooter>
@@ -263,9 +439,11 @@ const ProfilePage: React.FC = () => {
               </CancelButton>
               <ConfirmButton 
                 onClick={handleAddBalance}
-                disabled={updatingBalance}
+                disabled={updatingBalance || processingCardLink}
               >
-                {updatingBalance ? 'Пополнение...' : 'Пополнить'}
+                {processingCardLink ? 'Подготовка платежа...' : 
+                updatingBalance ? 'Пополнение...' : 
+                selectedPayment === 'cardlink' ? 'Перейти к оплате' : 'Пополнить'}
               </ConfirmButton>
             </ModalFooter>
           </ModalContent>
@@ -987,5 +1165,37 @@ const RetryButton = styled.button`
   &:hover {
     transform: translateY(-2px);
     box-shadow: 0 10px 25px rgba(136, 251, 71, 0.3);
+  }
+`;
+
+const PaymentStatus = styled.div`
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 12px;
+  background: rgba(136, 251, 71, 0.1);
+  border: 1px solid rgba(136, 251, 71, 0.3);
+  border-radius: 10px;
+  margin: 10px 0;
+`;
+
+const StatusText = styled.span`
+  color: #88FB47;
+  font-family: "ChakraPetch-Regular";
+  font-size: 14px;
+`;
+
+const StatusSpinner = styled.div`
+  width: 16px;
+  height: 16px;
+  border: 2px solid rgba(136, 251, 71, 0.3);
+  border-top: 2px solid #88FB47;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+  
+  @keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
   }
 `;
