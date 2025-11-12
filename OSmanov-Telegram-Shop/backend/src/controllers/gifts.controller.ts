@@ -294,7 +294,7 @@ export class GiftsController {
       if (userBalance < totalAmount) {
         res.status(400).json({
           status: 'error',
-          message: `Insufficient balance. Available: ${userBalance}, Required: ${totalAmount}`
+          message: `Недостаточно средств на счету!`
         });
         return;
       }
