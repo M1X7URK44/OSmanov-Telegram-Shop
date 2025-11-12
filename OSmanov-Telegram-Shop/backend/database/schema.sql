@@ -32,11 +32,16 @@ CREATE TABLE
     IF NOT EXISTS purchases (
         id SERIAL PRIMARY KEY,
         user_id INTEGER REFERENCES users (id),
+        custom_id VARCHAR(100), -- ← добавить эту колонку
         service_id INTEGER,
         service_name VARCHAR(255) NOT NULL,
+        quantity INTEGER DEFAULT 1, -- ← добавить
         amount DECIMAL(15, 2) NOT NULL,
+        total_price DECIMAL(15, 2), -- ← добавить
         currency VARCHAR(10) DEFAULT 'USD',
         status VARCHAR(20) CHECK (status IN ('completed', 'pending', 'failed')) DEFAULT 'completed',
+        pins JSONB, -- ← добавить для хранения PIN кодов
+        data TEXT, -- ← добавить для дополнительных данных
         purchase_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );

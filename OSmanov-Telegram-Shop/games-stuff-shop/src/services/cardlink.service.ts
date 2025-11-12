@@ -1,7 +1,8 @@
 // frontend/src/services/cardlink.service.ts
 import { userApi } from '../api/user.api';
 
-const API_BASE_URL = 'http://localhost:5000/api';
+// const API_BASE_URL = 'http://localhost:5000/api';
+const API_BASE_URL = '/api';
 
 export interface CardLinkPaymentResponse {
   success: boolean;

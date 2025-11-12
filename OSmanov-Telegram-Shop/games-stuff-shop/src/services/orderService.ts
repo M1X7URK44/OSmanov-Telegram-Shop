@@ -82,7 +82,8 @@ interface ApiResponse<T> {
 }
 
 class OrderService {
-  private baseUrl = 'http://localhost:5000/api';
+  // private baseUrl = 'http://localhost:5000/api';
+  private baseUrl = '/api'
 
   private async handleApiRequest<T>(
     url: string, 

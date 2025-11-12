@@ -197,7 +197,9 @@ const ProfilePage: React.FC = () => {
         setPaymentStatus('Перенаправление на страницу оплаты...');
         
         // Открываем ссылку в новом окне
-        const paymentWindow = window.open(paymentResult.link_page_url); //, '_blank', 'width=600,height=700');
+        // const paymentWindow = window.open(paymentResult.link_page_url, '_blank', 'width=600,height=700');
+        window.location.replace(paymentResult.link_page_url);
+        const paymentWindow = true;
         
         if (paymentWindow) {
           // Запускаем проверку статуса платежа

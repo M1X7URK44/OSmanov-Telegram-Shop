@@ -104,12 +104,11 @@ const ShopCartPage: React.FC = () => {
             
             await checkout(userId, items);
             
+            window.location.replace('/');
         } catch (err) {
             console.error('Checkout error:', err);
             // Ошибка уже обработана в хуке useOrders
         }
-
-        window.location.replace('/');
     };
 
     const handleCloseModal = () => {

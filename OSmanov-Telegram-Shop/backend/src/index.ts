@@ -32,6 +32,8 @@ const corsOptions = {
       'http://frontend:80',
       'http://backend:5000',
       'http://localhost',
+      'http://127.0.0.1:3000',    // ← добавьте это
+      'https://127.0.0.1:3000',   // ← добавьте это
     ];
     
     if (allowedOrigins.includes(origin)) {

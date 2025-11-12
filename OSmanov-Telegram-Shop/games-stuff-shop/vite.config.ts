@@ -3,15 +3,21 @@ import react from '@vitejs/plugin-react'
 
 export default defineConfig({
   plugins: [react()],
-  base: '/', // важно для правильных путей
+  base: '/',
   build: {
     outDir: 'dist',
     assetsDir: 'assets',
-    // Копируем все статические файлы
-    assetsInlineLimit: 0 // отключаем инлайнинг для изображений
+    assetsInlineLimit: 0
   },
   server: {
     host: true,
-    port: 5173
+    port: 5173,
+    proxy: {
+      '/api': {
+        target: 'http://localhost:5000',
+        changeOrigin: true,
+        secure: false
+      }
+    }
   }
 })
