@@ -442,7 +442,7 @@ export class UserService {
     photo_url?: string;
     balance?: number;
     total_spent?: number;
-  }): Promise<any> { // Используем any или создаем отдельный тип
+  }): Promise<any> {
     try {
       const result = await query(
         `INSERT INTO users (
@@ -462,7 +462,26 @@ export class UserService {
       );
 
       return result.rows[0];
-    } catch (error) {
+    } catch (error: any) {
+      // Если ошибка дублирования username или email, пробуем создать с другим username
+      if (error.code === '23505' && error.constraint === 'users_username_key') {
+        // Генерируем уникальный username
+        const uniqueUsername = `${userData.username}_${Date.now()}`;
+        return this.createUser({
+          ...userData,
+          username: uniqueUsername
+        });
+      }
+      
+      // Если ошибка дублирования email, пробуем создать с другим email
+      if (error.code === '23505' && error.constraint === 'users_email_key') {
+        const uniqueEmail = `tg${userData.telegram_id}_${Date.now()}@telegram.user`;
+        return this.createUser({
+          ...userData,
+          email: uniqueEmail
+        });
+      }
+      
       console.error('Error creating user:', error);
       throw error;
     }

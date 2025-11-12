@@ -1,6 +1,13 @@
+-- Удаляем существующие таблицы (осторожно - удалит данные!)
+DROP TABLE IF EXISTS purchases CASCADE;
+
+DROP TABLE IF EXISTS transactions CASCADE;
+
+DROP TABLE IF EXISTS users CASCADE;
+
 -- Таблица пользователей
 CREATE TABLE
-    IF NOT EXISTS users (
+    users (
         id SERIAL PRIMARY KEY,
         telegram_id BIGINT UNIQUE,
         username VARCHAR(50) UNIQUE NOT NULL,
@@ -18,9 +25,9 @@ CREATE TABLE
 
 -- Таблица транзакций
 CREATE TABLE
-    IF NOT EXISTS transactions (
+    transactions (
         id SERIAL PRIMARY KEY,
-        user_id INTEGER REFERENCES users (id),
+        user_id INTEGER REFERENCES users (id) ON DELETE CASCADE,
         amount DECIMAL(15, 2) NOT NULL,
         type VARCHAR(20) CHECK (type IN ('deposit', 'withdrawal', 'purchase')),
         status VARCHAR(20) CHECK (
@@ -33,113 +40,72 @@ CREATE TABLE
 
 -- Таблица покупок
 CREATE TABLE
-    IF NOT EXISTS purchases (
+    purchases (
         id SERIAL PRIMARY KEY,
-        user_id INTEGER REFERENCES users (id),
-        custom_id VARCHAR(100), -- ← добавить эту колонку
+        user_id INTEGER REFERENCES users (id) ON DELETE CASCADE,
+        custom_id VARCHAR(100),
         service_id INTEGER,
         service_name VARCHAR(255) NOT NULL,
-        quantity INTEGER DEFAULT 1, -- ← добавить
+        quantity INTEGER DEFAULT 1,
         amount DECIMAL(15, 2) NOT NULL,
-        total_price DECIMAL(15, 2), -- ← добавить
+        total_price DECIMAL(15, 2),
         currency VARCHAR(10) DEFAULT 'USD',
         status VARCHAR(20) CHECK (status IN ('completed', 'pending', 'failed')) DEFAULT 'completed',
-        pins JSONB, -- ← добавить для хранения PIN кодов
-        data TEXT, -- ← добавить для дополнительных данных
+        pins JSONB,
+        data TEXT,
         purchase_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
 
 -- Индексы
-CREATE INDEX IF NOT EXISTS idx_users_email ON users (email);
+CREATE INDEX idx_users_telegram_id ON users (telegram_id);
 
-CREATE INDEX IF NOT EXISTS idx_transactions_user_id ON transactions (user_id);
+CREATE INDEX idx_users_email ON users (email);
 
-CREATE INDEX IF NOT EXISTS idx_purchases_user_id ON purchases (user_id);
+CREATE INDEX idx_transactions_user_id ON transactions (user_id);
 
-CREATE INDEX IF NOT EXISTS idx_users_telegram_id ON users (telegram_id);
+CREATE INDEX idx_purchases_user_id ON purchases (user_id);
 
-CREATE INDEX IF NOT EXISTS idx_users_email ON users (email);
+CREATE INDEX idx_purchases_custom_id ON purchases (custom_id);
 
--- Тестовые данные
+-- Тестовые данные (БЕЗ фиксированного ID)
 INSERT INTO
     users (
-        id,
+        telegram_id,
         username,
         email,
-        password_hash,
+        first_name,
+        last_name,
         balance,
         total_spent
     )
 VALUES
     (
-        1,
+        123456789,
         'djosmanov',
         'djosmanov@example.com',
-        'hashed_password',
+        'Daniil',
+        'Osmanov',
         100000.00,
         0.00
-    ) ON CONFLICT (id) DO
+    ) ON CONFLICT (telegram_id) DO
 UPDATE
 SET
     username = EXCLUDED.username,
     email = EXCLUDED.email,
+    first_name = EXCLUDED.first_name,
+    last_name = EXCLUDED.last_name,
     balance = EXCLUDED.balance,
-    total_spent = EXCLUDED.total_spent;
+    total_spent = EXCLUDED.total_spent,
+    updated_at = CURRENT_TIMESTAMP;
 
--- INSERT INTO
---     purchases (
---         user_id,
---         service_id,
---         service_name,
---         amount,
---         currency,
---         status,
---         purchase_date
---     )
--- VALUES
---     (
---         1,
---         1,
---         'Steam Gift Card $50',
---         4500.00,
---         'USD',
---         'completed',
---         '2024-03-15 14:30:00'
---     ),
---     (
---         1,
---         2,
---         'PlayStation Network $20',
---         1800.00,
---         'USD',
---         'completed',
---         '2024-03-10 10:15:00'
---     ),
---     (
---         1,
---         3,
---         'Xbox Live Gold 3 Months',
---         2500.00,
---         'USD',
---         'completed',
---         '2024-03-05 16:45:00'
---     ),
---     (
---         1,
---         4,
---         'Spotify Premium 1 Year',
---         12000.00,
---         'USD',
---         'completed',
---         '2024-02-28 09:20:00'
---     ),
---     (
---         1,
---         5,
---         'Netflix Gift Card $30',
---         2700.00,
---         'USD',
---         'completed',
---         '2024-02-20 11:30:00'
---     ) ON CONFLICT DO NOTHING;
+-- Проверяем создание таблиц
+SELECT
+    table_name,
+    table_type
+FROM
+    information_schema.tables
+WHERE
+    table_schema = 'public'
+ORDER BY
+    table_name;
