@@ -1,13 +1,19 @@
 export interface User {
   id: number;
+  telegram_id?: number; // Добавляем опциональные поля Telegram
   username: string;
   email: string;
+  first_name?: string;
+  last_name?: string;
+  photo_url?: string;
+  password_hash?: string; // Делаем опциональным
   balance: number;
   total_spent: number;
   join_date: string;
   created_at: string;
   updated_at: string;
 }
+
 
 export interface Purchase {
   id: number;

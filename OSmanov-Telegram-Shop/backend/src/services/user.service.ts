@@ -3,10 +3,10 @@ import { User, UserProfile, Purchase, Transaction, BalanceUpdate } from '../type
 import { CartItem, CheckoutResponse } from '../types/api.types';
 
 export class UserService {
-  async getUserById(userId: number): Promise<User | null> {
+  async getUserById(userId: number): Promise<any> {
     try {
       const result = await query(
-        'SELECT id, username, email, balance, total_spent, join_date, created_at, updated_at FROM users WHERE id = $1',
+        'SELECT id, telegram_id, username, email, first_name, last_name, photo_url, balance, total_spent, join_date, created_at, updated_at FROM users WHERE id = $1',
         [userId]
       );
       
@@ -17,10 +17,10 @@ export class UserService {
     }
   }
 
-  async getUserByEmail(email: string): Promise<User | null> {
+  async getUserByEmail(email: string): Promise<any> {
     try {
       const result = await query(
-        'SELECT id, username, email, balance, total_spent, join_date, created_at, updated_at FROM users WHERE email = $1',
+        'SELECT id, telegram_id, username, email, first_name, last_name, photo_url, balance, total_spent, join_date, created_at, updated_at FROM users WHERE email = $1',
         [email]
       );
       
@@ -418,6 +418,56 @@ export class UserService {
       throw error;
     }
   }
+
+  async getUserByTelegramId(telegramId: number): Promise<User | null> {
+    try {
+      const result = await query(
+        'SELECT id, telegram_id, username, email, first_name, last_name, photo_url, balance, total_spent, join_date, created_at, updated_at FROM users WHERE telegram_id = $1',
+        [telegramId]
+      );
+      
+      return result.rows[0] || null;
+    } catch (error) {
+      console.error('Error fetching user by Telegram ID:', error);
+      throw error;
+    }
+  }
+
+  async createUser(userData: {
+    telegram_id: number;
+    username: string;
+    email: string;
+    first_name?: string;
+    last_name?: string;
+    photo_url?: string;
+    balance?: number;
+    total_spent?: number;
+  }): Promise<any> { // Используем any или создаем отдельный тип
+    try {
+      const result = await query(
+        `INSERT INTO users (
+          telegram_id, username, email, first_name, last_name, photo_url, balance, total_spent
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) 
+        RETURNING *`,
+        [
+          userData.telegram_id,
+          userData.username,
+          userData.email,
+          userData.first_name,
+          userData.last_name,
+          userData.photo_url,
+          userData.balance || 0.00,
+          userData.total_spent || 0.00
+        ]
+      );
+
+      return result.rows[0];
+    } catch (error) {
+      console.error('Error creating user:', error);
+      throw error;
+    }
+  }
+
 }
 
 export const userService = new UserService();

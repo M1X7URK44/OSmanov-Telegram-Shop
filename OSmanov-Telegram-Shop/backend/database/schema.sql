@@ -2,9 +2,13 @@
 CREATE TABLE
     IF NOT EXISTS users (
         id SERIAL PRIMARY KEY,
+        telegram_id BIGINT UNIQUE,
         username VARCHAR(50) UNIQUE NOT NULL,
         email VARCHAR(255) UNIQUE NOT NULL,
-        password_hash VARCHAR(255) NOT NULL,
+        first_name VARCHAR(100),
+        last_name VARCHAR(100),
+        photo_url TEXT,
+        password_hash VARCHAR(255),
         balance DECIMAL(15, 2) DEFAULT 0.00,
         total_spent DECIMAL(15, 2) DEFAULT 0.00,
         join_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -52,6 +56,10 @@ CREATE INDEX IF NOT EXISTS idx_users_email ON users (email);
 CREATE INDEX IF NOT EXISTS idx_transactions_user_id ON transactions (user_id);
 
 CREATE INDEX IF NOT EXISTS idx_purchases_user_id ON purchases (user_id);
+
+CREATE INDEX IF NOT EXISTS idx_users_telegram_id ON users (telegram_id);
+
+CREATE INDEX IF NOT EXISTS idx_users_email ON users (email);
 
 -- Тестовые данные
 INSERT INTO

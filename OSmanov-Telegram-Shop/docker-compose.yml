@@ -37,6 +37,8 @@ services:
       - CARD_LINK_SHOP_ID=bxvA66LmJk
       - CARD_LINK_BASE_URL=https://cardlink.link/api/v1
       - FRONTEND_URL=https://t.me/osGift_bot
+
+      - JWT_SECRET=[EJ^yP]uVnMRhkE]leyxRcrsAk^pg_
     depends_on:
       postgres:
         condition: service_healthy
