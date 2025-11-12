@@ -417,7 +417,7 @@ const ProfilePage: React.FC = () => {
         </UserAvatar>
         <UserInfo>
           <UserName>{user.username}</UserName>
-          <UserEmail>{user.email}</UserEmail>
+          <UserEmail>{user.telegram_id}</UserEmail>
           <UserJoinDate>Участник с {new Date(user.join_date).toLocaleDateString('ru-RU')}</UserJoinDate>
         </UserInfo>
       </ProfileHeader>

@@ -45,6 +45,7 @@ export interface User {
   join_date: string;
   created_at: string;
   updated_at: string;
+  telegram_id: number;
 }
 
 export interface Purchase {

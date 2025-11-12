@@ -4,6 +4,7 @@ import { useCart } from '../context/CartContext';
 import { useOrders } from '../hooks/useOrders';
 import { useCurrency } from '../hooks/useCurrency';
 import { type CheckoutItemResult } from '../services/orderService';
+import { useUser } from '../context/UserContext';
 
 const ShopCartPage: React.FC = () => {
     const { state, updateQuantity, removeItem, clearCart, updateUserData, requiresUserData } = useCart();
@@ -15,6 +16,8 @@ const ShopCartPage: React.FC = () => {
     const [convertedPrices, setConvertedPrices] = useState<{ [key: number]: number }>({});
     const [convertedTotal, setConvertedTotal] = useState<number>(0);
     const [convertedResultTotal, setConvertedResultTotal] = useState<number | null>(null);
+
+    const { user } = useUser();
 
     // Конвертация цен товаров в рубли
     useEffect(() => {
@@ -88,6 +91,7 @@ const ShopCartPage: React.FC = () => {
 
     const handleCheckout = async () => {
         if (items.length === 0) return;
+        if (!user) return;
         
         // Проверяем валидацию перед отправкой
         const validationError = validateCheckout(items);
@@ -99,11 +103,8 @@ const ShopCartPage: React.FC = () => {
         setShowCheckoutModal(true);
         
         try {
-            // В реальном приложении здесь будет ID текущего пользователя из контекста/авторизации
-            const userId = 1; // Временно используем ID 1 для теста
-            
+            const userId = user?.id;
             await checkout(userId, items);
-            
             window.location.replace('/');
         } catch (err) {
             console.error('Checkout error:', err);

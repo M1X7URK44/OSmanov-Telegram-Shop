@@ -182,7 +182,7 @@ const AllGamesPage: React.FC = () => {
                         </InfoAdvBlock>
                     </AdvBlock>
                     <CategoriesGrid>
-                        {categories.map((category) => (
+                        {categories.filter((category) => category.tags.length > 0).map((category) => (
                             <CategoryCard 
                                 key={category.id} 
                                 onClick={() => handleCategoryClick(category)}
