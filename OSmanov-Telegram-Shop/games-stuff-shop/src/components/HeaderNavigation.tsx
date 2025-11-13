@@ -1,16 +1,31 @@
 import styled from "styled-components";
 import { useNavigate } from "react-router-dom";
 import { useUser } from '../context/UserContext';
+import { useCurrency } from '../hooks/useCurrency';
 
 // Icons
 import Logo from "../assets/icons/Logo.svg";
 import BalanceIndicatorIcon from "../assets/icons/rub-icon.svg";
 import WalletIcon from "../assets/icons/wallet-icon.svg";
 import ProfileIcon from "../assets/icons/menu-profile-icon.svg"
+import { useEffect, useState } from "react";
 
 const HeaderNavigation: React.FC = () => {
     const navigate = useNavigate();
     const { user, loading } = useUser();
+    const { convertToRub, usdToRubRate, loading: ratesLoading } = useCurrency();
+    const [convertedBalance, setConvertedBalance] = useState<number | undefined>();
+
+    useEffect(() => {
+        const convertBalance = async () => {
+            if (user) {
+                const rubAmount = await convertToRub(user.balance, 'USD');
+                setConvertedBalance(rubAmount);
+            }
+        };
+
+        convertBalance();
+    }, [user?.balance, convertToRub, ratesLoading, usdToRubRate]);
 
     const handleTopUpClick = () => {
         navigate('/profile?topup=true');
@@ -21,8 +36,12 @@ const HeaderNavigation: React.FC = () => {
     };
 
     // Форматируем баланс для отображения
-    const formatBalance = (balance: number) => {
-        return balance.toLocaleString('ru-RU');
+    const formatBalance = (balance: number | undefined) => {
+        if (balance) {
+            return balance.toFixed(1);
+        } else {
+            return "";
+        }
     };
 
     return (
@@ -31,7 +50,7 @@ const HeaderNavigation: React.FC = () => {
             <BalanceIndicator>
                 <img src={BalanceIndicatorIcon} alt="BalanceIndicator" />
                 <span>
-                    {loading ? 'Загрузка...' : user ? formatBalance(user.balance) : '0'}
+                    {loading ? 'Загрузка...' : user ? formatBalance(convertedBalance) : '0'}
                 </span>
             </BalanceIndicator>
             <TopUpButton onClick={handleTopUpClick}>

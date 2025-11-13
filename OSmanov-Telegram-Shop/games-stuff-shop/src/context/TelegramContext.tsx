@@ -24,6 +24,7 @@ interface TelegramContextType {
   user: TelegramUser | null;
   initData: string;
   isExpanded: boolean;
+  openLink: (url: string) => void;
   expand: () => void;
   close: () => void;
 }
@@ -71,6 +72,12 @@ export const TelegramProvider: React.FC<{ children: ReactNode }> = ({ children }
     }
   }, []);
 
+  const openLink = (url: string) => {
+    if (webApp) {
+      webApp.openLink(url);
+    }
+  }
+
   const expand = () => {
     if (webApp) {
       webApp.expand();
@@ -90,6 +97,7 @@ export const TelegramProvider: React.FC<{ children: ReactNode }> = ({ children }
       user,
       initData,
       isExpanded,
+      openLink,
       expand,
       close
     }}>

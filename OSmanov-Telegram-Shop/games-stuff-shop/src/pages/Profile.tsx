@@ -5,10 +5,12 @@ import { userApi } from '../api/user.api';
 import { useUser } from '../context/UserContext';
 import { cardLinkService } from '../services/cardlink.service';
 import { useCurrency } from '../hooks/useCurrency';
+import { useTelegram } from '../context/TelegramContext';
 
 const ProfilePage: React.FC = () => {
   const { user, profile, loading, error, refreshUser, updateBalance } = useUser();
   const { convertToRub, formatRubles, usdToRubRate, loading: ratesLoading } = useCurrency();
+  const { openLink } = useTelegram();
   
   const [addAmount, setAddAmount] = useState<string>('');
   const [updatingBalance, setUpdatingBalance] = useState<boolean>(false);
@@ -25,6 +27,19 @@ const ProfilePage: React.FC = () => {
 
   const [convertedAmounts, setConvertedAmounts] = useState<{ [key: string]: number }>({});
   const [convertedTotalSpent, setConvertedTotalSpent] = useState<number | null>(null);
+
+  const [convertedBalance, setConvertedBalance] = useState<number | undefined>();
+
+  useEffect(() => {
+        const convertBalance = async () => {
+            if (user) {
+                const rubAmount = await convertToRub(user.balance, 'USD');
+                setConvertedBalance(rubAmount);
+            }
+        };
+
+        convertBalance();
+    }, [user?.balance, convertToRub, ratesLoading, usdToRubRate]);
 
   useEffect(() => {
     const shouldOpenTopUp = searchParams.get('topup') === 'true';
@@ -354,7 +369,13 @@ const ProfilePage: React.FC = () => {
         
         // Открываем ссылку в новом окне
         // const paymentWindow = window.open(paymentResult.link_page_url, '_blank', 'width=600,height=700');
-        window.location.replace(paymentResult.link_page_url);
+        try {
+          openLink(paymentResult.link_page_url);
+        } catch (error) {
+          console.log(error);
+          window.location.replace(paymentResult.link_page_url);
+        }
+        
         const paymentWindow = true;
         
         if (paymentWindow) {
@@ -591,7 +612,7 @@ const ProfilePage: React.FC = () => {
         </BalanceHeader>
         
         <BalanceAmount>
-          <BalanceValue>{user.balance.toLocaleString('ru-RU')}</BalanceValue>
+          <BalanceValue>{convertedBalance?.toFixed(1)}</BalanceValue>
           <CurrencySymbol>₽</CurrencySymbol>
         </BalanceAmount>
         
