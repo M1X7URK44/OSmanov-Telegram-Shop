@@ -4,12 +4,13 @@ import styled, { keyframes } from 'styled-components';
 import { userApi } from '../api/user.api';
 import { useUser } from '../context/UserContext';
 import { cardLinkService } from '../services/cardlink.service';
-import { orderService } from '../services/orderService';
 import { useCurrency } from '../hooks/useCurrency';
+import { useTelegram } from '../context/TelegramContext';
 
 const ProfilePage: React.FC = () => {
   const { user, profile, loading, error, refreshUser, updateBalance } = useUser();
   const { convertToRub, formatRubles, usdToRubRate, loading: ratesLoading } = useCurrency();
+  const { openLink } = useTelegram();
   
   const [addAmount, setAddAmount] = useState<string>('');
   const [updatingBalance, setUpdatingBalance] = useState<boolean>(false);
@@ -26,6 +27,19 @@ const ProfilePage: React.FC = () => {
 
   const [convertedAmounts, setConvertedAmounts] = useState<{ [key: string]: number }>({});
   const [convertedTotalSpent, setConvertedTotalSpent] = useState<number | null>(null);
+
+  const [convertedBalance, setConvertedBalance] = useState<number | undefined>();
+
+  useEffect(() => {
+        const convertBalance = async () => {
+            if (user) {
+                const rubAmount = await convertToRub(user.balance, 'USD');
+                setConvertedBalance(rubAmount);
+            }
+        };
+
+        convertBalance();
+    }, [user?.balance, convertToRub, ratesLoading, usdToRubRate]);
 
   useEffect(() => {
     const shouldOpenTopUp = searchParams.get('topup') === 'true';
@@ -120,14 +134,19 @@ const ProfilePage: React.FC = () => {
     setLoadingOrder(prev => ({ ...prev, [purchase.id]: true }));
 
     try {
-      // Получаем детальную информацию о заказе
-      const orderInfo = await orderService.getOrderInfoByCustomId(purchase.custom_id);
+      // Получаем детальную информацию о заказе из нашей базы данных
+      const orderInfo = await getOrderInfoFromDatabase(purchase.custom_id);
       
+      if (!orderInfo) {
+        alert('Информация о заказе не найдена');
+        return;
+      }
+
       // Форматируем данные для копирования
-      const textToCopy = formatOrderInfoForCopy(orderInfo, purchase);
+      const textToCopy = await formatOrderInfoForCopy(orderInfo, purchase);
       
-      // Копируем в буфер обмена
-      await navigator.clipboard.writeText(textToCopy);
+      // Копируем в буфер обмена с поддержкой мобильных устройств
+      await copyToClipboard(textToCopy);
       
       // Показываем статус успешного копирования
       setCopyStatus(prev => ({ ...prev, [purchase.id]: true }));
@@ -137,26 +156,178 @@ const ProfilePage: React.FC = () => {
 
     } catch (error) {
       console.error('Error copying order info:', error);
-      alert('Не удалось получить информацию о заказе');
+      alert('Не удалось скопировать информацию о заказе');
     } finally {
       setLoadingOrder(prev => ({ ...prev, [purchase.id]: false }));
     }
   };
 
+  // Универсальная функция копирования с поддержкой мобильных устройств
+  const copyToClipboard = async (text: string): Promise<void> => {
+    // Пытаемся использовать modern Clipboard API
+    if (navigator.clipboard && window.isSecureContext) {
+      try {
+        await navigator.clipboard.writeText(text);
+        return;
+      } catch (clipboardError) {
+        console.warn('Clipboard API failed, trying fallback:', clipboardError);
+      }
+    }
+    
+    // Fallback для мобильных устройств и старых браузеров
+    try {
+      // Создаем временный textarea
+      const textArea = document.createElement('textarea');
+      textArea.value = text;
+      
+      // Делаем его невидимым
+      textArea.style.position = 'fixed';
+      textArea.style.left = '-999999px';
+      textArea.style.top = '-999999px';
+      textArea.style.opacity = '0';
+      textArea.style.pointerEvents = 'none';
+      
+      document.body.appendChild(textArea);
+      
+      // Выделяем и копируем
+      textArea.focus();
+      textArea.select();
+      
+      // Для мобильных устройств используем setSelectionRange
+      if (navigator.userAgent.match(/iphone|ipad|ipod|android/i)) {
+        textArea.setSelectionRange(0, 999999);
+      }
+      
+      const successful = document.execCommand('copy');
+      document.body.removeChild(textArea);
+      
+      if (!successful) {
+        throw new Error('execCommand copy failed');
+      }
+      
+    } catch (fallbackError) {
+      console.error('Fallback copy failed:', fallbackError);
+      
+      // Последний вариант - показываем текст для ручного копирования
+      showTextForManualCopy(text);
+    }
+  };
+
+  // Функция для показа текста в модальном окне для ручного копирования
+  const showTextForManualCopy = (text: string) => {
+    // Создаем модальное окно с текстом
+    const modal = document.createElement('div');
+    modal.style.cssText = `
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0, 0, 0, 0.8);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      z-index: 10000;
+      padding: 20px;
+    `;
+    
+    const content = document.createElement('div');
+    content.style.cssText = `
+      background: #1a1a2e;
+      border: 1px solid #88FB47;
+      border-radius: 15px;
+      padding: 20px;
+      max-width: 90%;
+      max-height: 80%;
+      overflow-y: auto;
+      color: white;
+      font-family: system-ui;
+    `;
+    
+    const textElement = document.createElement('pre');
+    textElement.style.cssText = `
+      white-space: pre-wrap;
+      word-wrap: break-word;
+      margin: 0 0 15px 0;
+      font-size: 14px;
+      line-height: 1.4;
+    `;
+    textElement.textContent = text;
+    
+    const message = document.createElement('div');
+    message.style.cssText = `
+      color: #88FB47;
+      text-align: center;
+      font-size: 16px;
+      margin-bottom: 15px;
+      font-weight: bold;
+    `;
+    message.textContent = 'Выделите текст и скопируйте вручную';
+    
+    const closeButton = document.createElement('button');
+    closeButton.style.cssText = `
+      background: #88FB47;
+      color: #1a1a2e;
+      border: none;
+      border-radius: 8px;
+      padding: 12px 24px;
+      font-size: 16px;
+      font-weight: bold;
+      cursor: pointer;
+      width: 100%;
+    `;
+    closeButton.textContent = 'Закрыть';
+    closeButton.onclick = () => document.body.removeChild(modal);
+    
+    content.appendChild(message);
+    content.appendChild(textElement);
+    content.appendChild(closeButton);
+    modal.appendChild(content);
+    document.body.appendChild(modal);
+    
+    // Автоматически выделяем текст на мобильных устройствах
+    setTimeout(() => {
+      const range = document.createRange();
+      range.selectNodeContents(textElement);
+      const selection = window.getSelection();
+      if (selection) {
+        selection.removeAllRanges();
+        selection.addRange(range);
+      }
+    }, 100);
+  };
+
+  // Функция для получения информации о заказе из нашей базы данных
+  const getOrderInfoFromDatabase = async (customId: string) => {
+    try {
+      // Используем userApi для запроса к нашему бэкенду
+      const response = await userApi.getOrderInfo(customId);
+      return response;
+    } catch (error) {
+      console.error('Error fetching order info from database:', error);
+      return null;
+    }
+  };
+
   // Функция для форматирования текста для копирования
-  const formatOrderInfoForCopy = (orderInfo: any, purchase: any): string => {
+  const formatOrderInfoForCopy = async (orderInfo: any, purchase: any): Promise<string> => {
+    const rubAmount = await convertToRub(purchase.amount, purchase.currency);
     const lines = [
       `🛒 Детали покупки`,
       `📦 Товар: ${purchase.service_name}`,
-      `💰 Сумма: ${purchase.amount} ${purchase.currency}`,
+      `💰 Сумма: ${rubAmount} руб.`,
       `📅 Дата: ${new Date(purchase.purchase_date).toLocaleDateString('ru-RU')}`,
       `🆔 ID заказа: ${purchase.custom_id}`,
-      `📊 Статус: ${orderInfo.status_message}`,
+      `📊 Статус: ${purchase.status === 'completed' ? 'Завершено' : purchase.status === 'pending' ? 'В обработке' : 'Ошибка'}`,
     ];
 
     // Добавляем PIN коды если есть
     if (orderInfo.pins && orderInfo.pins.length > 0) {
-      lines.push(`🔑 PIN коды: ${orderInfo.pins.join(', ')}`);
+      lines.push(`🔑 PIN коды:`);
+      orderInfo.pins.forEach((pin: string, index: number) => {
+        lines.push(`  ${index + 1}. ${pin}`);
+      });
     }
 
     // Добавляем данные если есть
@@ -198,7 +369,13 @@ const ProfilePage: React.FC = () => {
         
         // Открываем ссылку в новом окне
         // const paymentWindow = window.open(paymentResult.link_page_url, '_blank', 'width=600,height=700');
-        window.location.replace(paymentResult.link_page_url);
+        try {
+          openLink(paymentResult.link_page_url);
+        } catch (error) {
+          console.log(error);
+          window.location.replace(paymentResult.link_page_url);
+        }
+        
         const paymentWindow = true;
         
         if (paymentWindow) {
@@ -417,7 +594,7 @@ const ProfilePage: React.FC = () => {
         </UserAvatar>
         <UserInfo>
           <UserName>{user.username}</UserName>
-          <UserEmail>{user.email}</UserEmail>
+          <UserEmail>{user.telegram_id}</UserEmail>
           <UserJoinDate>Участник с {new Date(user.join_date).toLocaleDateString('ru-RU')}</UserJoinDate>
         </UserInfo>
       </ProfileHeader>
@@ -435,7 +612,7 @@ const ProfilePage: React.FC = () => {
         </BalanceHeader>
         
         <BalanceAmount>
-          <BalanceValue>{user.balance.toLocaleString('ru-RU')}</BalanceValue>
+          <BalanceValue>{convertedBalance?.toFixed(1)}</BalanceValue>
           <CurrencySymbol>₽</CurrencySymbol>
         </BalanceAmount>
         

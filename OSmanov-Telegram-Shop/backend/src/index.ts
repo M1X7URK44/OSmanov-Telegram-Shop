@@ -5,7 +5,8 @@ import dotenv from 'dotenv';
 import { requestLogger } from './middleware/logger';
 import { giftsRoutes } from './routes/gifts.routes';
 import { userRoutes } from './routes/user.routes';
-import { cardLinkRoutes } from './routes/cardlink.routes'; // Добавляем импорт
+import { cardLinkRoutes } from './routes/cardlink.routes';
+import { authRoutes } from './routes/auth.routes';
 
 dotenv.config();
 
@@ -82,7 +83,10 @@ app.use('/api/gifts', giftsRoutes);
 app.use('/api/user', userRoutes);
 
 // Новые роуты для CardLink
-app.use('/api/cardlink', cardLinkRoutes); // Добавляем роуты
+app.use('/api/cardlink', cardLinkRoutes);
+
+// Новые роуты для Auth
+app.use('/api/auth', authRoutes);
 
 // Health check
 app.get('/api/health', (req, res) => {
