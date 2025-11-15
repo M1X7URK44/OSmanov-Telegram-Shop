@@ -77,6 +77,21 @@ class CurrencyService {
     return amount * rates.RUB / rate;
   }
 
+  // Конвертация из любой валюты в USD
+  async convertToUsd(amount: number, fromCurrency: string): Promise<number> {
+    if (fromCurrency === 'USD') return amount;
+    
+    const rates = await this.getExchangeRates();
+    const rate = rates[fromCurrency as keyof typeof rates];
+    
+    if (!rate) {
+      console.warn(`Unknown currency: ${fromCurrency}, using USD rate`);
+      return amount / rates.RUB;
+    }
+    
+    return amount / rate;
+  }
+
   // Получение текущего курса USD к RUB
   async getUsdToRubRate(): Promise<number> {
     const rates = await this.getExchangeRates();

@@ -9,7 +9,7 @@ import { useTelegram } from '../context/TelegramContext';
 
 const ProfilePage: React.FC = () => {
   const { user, profile, loading, error, refreshUser, updateBalance } = useUser();
-  const { convertToRub, formatRubles, usdToRubRate, loading: ratesLoading } = useCurrency();
+  const { convertToRub, convertToUsd, formatRubles, usdToRubRate, loading: ratesLoading } = useCurrency();
   const { openLink } = useTelegram();
   
   const [addAmount, setAddAmount] = useState<string>('');
@@ -354,13 +354,15 @@ const ProfilePage: React.FC = () => {
       setProcessingCardLink(true);
       setPaymentStatus('Создание платежа...');
       
-      const amount = Number(addAmount);
+      const rubAmount = Number(addAmount);
+      const usdAmount = await convertToUsd(rubAmount, 'RUB');
+      const amount = Number(usdAmount);
       const orderId = `balance_${user.id}_${Date.now()}`;
       
       const paymentResult = await cardLinkService.createPayment(
-        amount,
+        rubAmount,
         orderId,
-        `Пополнение баланса на ${amount} ₽`,
+        `Пополнение баланса на ${rubAmount} ₽`,
         user.id
       );
 
@@ -380,7 +382,7 @@ const ProfilePage: React.FC = () => {
         
         if (paymentWindow) {
           // Запускаем проверку статуса платежа
-          startPaymentStatusCheck(paymentResult.bill_id, amount);
+          startPaymentStatusCheck(paymentResult.bill_id, amount, rubAmount);
         } else {
           alert('Пожалуйста, разрешите всплывающие окна для этого сайта');
           setProcessingCardLink(false);
@@ -400,7 +402,7 @@ const ProfilePage: React.FC = () => {
   };
 
   // Упрощенная функция для проверки статуса платежа
-  const startPaymentStatusCheck = (billId: string, amount: number) => {
+  const startPaymentStatusCheck = (billId: string, amount: number, rubAmount: number) => {
     let checkCount = 0;
     const maxChecks = 120; // 10 минут (120 * 5 секунд)
     
@@ -433,7 +435,7 @@ const ProfilePage: React.FC = () => {
                 setIsAddingBalance(false);
                 setAddAmount('');
                 setPaymentStatus('');
-                alert(`Баланс успешно пополнен на ${amount} ₽`);
+                alert(`Баланс успешно пополнен на ${rubAmount} ₽`);
               }, 1000);
             }
             

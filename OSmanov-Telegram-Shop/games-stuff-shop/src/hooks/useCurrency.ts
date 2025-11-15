@@ -3,6 +3,7 @@ import { currencyService } from '../services/currencyService';
 
 interface UseCurrencyReturn {
   convertToRub: (amount: number, fromCurrency: string) => Promise<number>;
+  convertToUsd: (amount: number, fromCurrency: string) => Promise<number>;
   formatRubles: (amount: number) => string;
   usdToRubRate: number | null;
   loading: boolean;
@@ -37,6 +38,10 @@ export const useCurrency = (): UseCurrencyReturn => {
     return await currencyService.convertToRub(amount, fromCurrency);
   }, []);
 
+  const convertToUsd = useCallback(async (amount: number, fromCurrency: string): Promise<number> => {
+    return await currencyService.convertToUsd(amount, fromCurrency);
+  }, []);
+
   const formatRubles = useCallback((amount: number): string => {
     return currencyService.formatRubles(amount);
   }, []);
@@ -47,6 +52,7 @@ export const useCurrency = (): UseCurrencyReturn => {
 
   return {
     convertToRub,
+    convertToUsd,
     formatRubles,
     usdToRubRate,
     loading,
