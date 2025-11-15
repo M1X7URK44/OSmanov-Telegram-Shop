@@ -8,7 +8,7 @@ import { useUser } from '../context/UserContext';
 
 const ShopCartPage: React.FC = () => {
     const { state, updateQuantity, removeItem, clearCart, updateUserData, requiresUserData } = useCart();
-    const { items, total } = state;
+    const { items } = state;
     const { checkout, loading, error, result, validateCheckout, getStatusColor } = useOrders();
     const { convertToRub, formatRubles, usdToRubRate, loading: ratesLoading } = useCurrency();
 
@@ -27,18 +27,23 @@ const ShopCartPage: React.FC = () => {
 
             for (const item of items) {
                 try {
-                    // Конвертируем цену за единицу товара
-                    const rubPrice = await convertToRub(item.price || 0, item.currency || 'USD');
-                    prices[item.service_id] = rubPrice;
-                    
-                    // Добавляем к общей сумме (цена × количество)
-                    totalRub += rubPrice * item.quantity;
+                    if (item.price) {
+                        // Конвертируем цену за единицу товара
+                        const rubPrice = await convertToRub(
+                            Number(item.price.toFixed(2)) || 0, 
+                            item.currency || 'USD'
+                        );
+                        prices[item.service_id] = Math.ceil(rubPrice);
+                        
+                        // Добавляем к общей сумме (цена × количество)
+                        totalRub += prices[item.service_id] * item.quantity;
+                    }
                 } catch (err) {
                     console.error(`Error converting price for item ${item.service_id}:`, err);
                     // Fallback на примерный курс
                     const fallbackPrice = (item.price || 0) * (usdToRubRate || 90);
-                    prices[item.service_id] = fallbackPrice;
-                    totalRub += fallbackPrice * item.quantity;
+                    prices[item.service_id] = Math.ceil(fallbackPrice);
+                    totalRub += prices[item.service_id] * item.quantity;
                 }
             }
 
@@ -138,14 +143,16 @@ const ShopCartPage: React.FC = () => {
         const rubPrice = convertedPrices[serviceId];
         const totalRub = rubPrice ? rubPrice * (items.find(item => item.service_id === serviceId)?.quantity || 1) : 0;
         
+        console.log(price, currency);
+
         return (
             <PriceContainer>
                 <RubPrice>
                     {rubPrice ? formatRubles(totalRub) : 'Загрузка...'}
                 </RubPrice>
-                <OriginalPrice>
+                {/* <OriginalPrice>
                     {price} {currency} × {items.find(item => item.service_id === serviceId)?.quantity || 1} = {(price * (items.find(item => item.service_id === serviceId)?.quantity || 1)).toFixed(2)} {currency}
-                </OriginalPrice>
+                </OriginalPrice> */}
             </PriceContainer>
         );
     };
@@ -245,9 +252,9 @@ const ShopCartPage: React.FC = () => {
                             <SummaryLabel>Общая сумма:</SummaryLabel>
                             <SummaryValue>
                                 {convertedTotal > 0 ? formatRubles(convertedTotal) : 'Загрузка...'}
-                                <OriginalTotal>
+                                {/* <OriginalTotal>
                                     {total.toFixed(2)} USD
-                                </OriginalTotal>
+                                </OriginalTotal> */}
                             </SummaryValue>
                         </SummaryRow>
                     </TotalSummary>
@@ -485,11 +492,11 @@ const RubPrice = styled.div`
     font-weight: 600;
 `;
 
-const OriginalPrice = styled.div`
-    color: #737591;
-    font-family: "ChakraPetch-Regular";
-    font-size: 12px;
-`;
+// const OriginalPrice = styled.div`
+//     color: #737591;
+//     font-family: "ChakraPetch-Regular";
+//     font-size: 12px;
+// `;
 
 const DataInputContainer = styled.div`
     margin-top: 12px;
@@ -649,12 +656,12 @@ const SummaryValue = styled.span`
     gap: 2px;
 `;
 
-const OriginalTotal = styled.span`
-    color: #737591;
-    font-family: "ChakraPetch-Regular";
-    font-size: 12px;
-    font-weight: normal;
-`;
+// const OriginalTotal = styled.span`
+//     color: #737591;
+//     font-family: "ChakraPetch-Regular";
+//     font-size: 12px;
+//     font-weight: normal;
+// `;
 
 const CheckoutButton = styled.button`
     width: 100%;

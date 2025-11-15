@@ -77,8 +77,11 @@ const ProfilePage: React.FC = () => {
       
       for (const purchase of profile.purchases) {
         try {
-          const rubAmount = await convertToRub(purchase.amount, purchase.currency);
-          converted[purchase.id] = rubAmount;
+          const rubAmount = await convertToRub(
+            Number(purchase.amount.toFixed(2)), 
+            purchase.currency
+          );
+          converted[purchase.id] = Math.ceil(rubAmount);
         } catch (err) {
           console.error(`Error converting purchase ${purchase.id}:`, err);
           // Используем примерный курс если конвертация не удалась
@@ -770,12 +773,12 @@ const ProfilePage: React.FC = () => {
                 <PurchaseName>{purchase.service_name}</PurchaseName>
                 <PurchaseDate>{formatDate(purchase.purchase_date)}</PurchaseDate>
                 {/* Показываем оригинальную сумму маленьким текстом */}
-                <OriginalAmount>
+                {/* <OriginalAmount>
                   {new Intl.NumberFormat('ru-RU', {
                     style: 'currency',
                     currency: purchase.currency
                   }).format(purchase.amount)}
-                </OriginalAmount>
+                </OriginalAmount> */}
               </PurchaseInfo>
               
               <PurchaseDetails>
@@ -1554,9 +1557,9 @@ const CopySpinner = styled.div`
   }
 `;
 
-const OriginalAmount = styled.div`
-  color: #737591;
-  font-family: "ChakraPetch-Regular";
-  font-size: 12px;
-  margin-top: 2px;
-`;
+// const OriginalAmount = styled.div`
+//   color: #737591;
+//   font-family: "ChakraPetch-Regular";
+//   font-size: 12px;
+//   margin-top: 2px;
+// `;

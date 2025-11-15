@@ -55,8 +55,11 @@ const AllGamesPage: React.FC = () => {
             for (const service of services) {
                 if (service.price) {
                     try {
-                        const rubPrice = await convertToRub(service.price, service.currency || 'USD');
-                        converted[service.service_id] = rubPrice;
+                        const rubPrice = await convertToRub(
+                            Number(service.price.toFixed(2)), 
+                            service.currency || 'USD'
+                        );
+                        converted[service.service_id] = Math.ceil(rubPrice);
                     } catch (err) {
                         console.error(`Error converting price for service ${service.service_id}:`, err);
                         // Fallback на примерный курс
@@ -81,9 +84,9 @@ const AllGamesPage: React.FC = () => {
             return (
                 <ServicePrice>
                     <RubPrice>{formatRubles(rubPrice)}</RubPrice>
-                    <OriginalPrice>
+                    {/* <OriginalPrice>
                         {service.price} {service.currency || 'USD'}
-                    </OriginalPrice>
+                    </OriginalPrice> */}
                 </ServicePrice>
             );
         } else {
