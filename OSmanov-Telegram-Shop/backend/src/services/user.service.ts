@@ -17,6 +17,20 @@ export class UserService {
     }
   }
 
+  async getUserByUsername(username: string): Promise<any> {
+    try {
+      const result = await query(
+        'SELECT id, telegram_id, username, email, first_name, last_name, photo_url, balance, total_spent, join_date, created_at, updated_at FROM users WHERE username = $1',
+        [username]
+      );
+      
+      return result.rows[0] || null;
+    } catch (error) {
+      console.error('Error fetching user by username:', error);
+      throw error;
+    }
+  }
+
   async getUserByEmail(email: string): Promise<any> {
     try {
       const result = await query(
@@ -180,6 +194,55 @@ export class UserService {
       return result.rows;
     } catch (error) {
       console.error('Error fetching transaction history:', error);
+      throw error;
+    }
+  }
+
+  async getUserPurchasesPaginated(userId: number, page: number = 1, limit: number = 20): Promise<{ purchases: Purchase[]; total: number; totalPages: number }> {
+    try {
+      const offset = (page - 1) * limit;
+
+      const purchasesQuery = `
+        SELECT 
+          id, 
+          user_id, 
+          service_id, 
+          service_name, 
+          quantity,
+          amount, 
+          total_price,
+          currency, 
+          status, 
+          purchase_date, 
+          created_at, 
+          custom_id
+        FROM purchases
+        WHERE user_id = $1
+        ORDER BY purchase_date DESC
+        LIMIT $2 OFFSET $3
+      `;
+
+      const countQuery = `
+        SELECT COUNT(*) as total
+        FROM purchases
+        WHERE user_id = $1
+      `;
+
+      const [purchasesResult, countResult] = await Promise.all([
+        query(purchasesQuery, [userId, limit, offset]),
+        query(countQuery, [userId])
+      ]);
+
+      const total = parseInt(countResult.rows[0].total);
+      const totalPages = Math.ceil(total / limit);
+
+      return {
+        purchases: purchasesResult.rows,
+        total,
+        totalPages
+      };
+    } catch (error) {
+      console.error('Error fetching paginated user purchases:', error);
       throw error;
     }
   }
@@ -484,6 +547,105 @@ export class UserService {
       
       console.error('Error creating user:', error);
       throw error;
+    }
+  }
+
+  async getAllUsers(page: number = 1, limit: number = 10, search?: string): Promise<{ users: User[], total: number, totalPages: number }> {
+    try {
+      const offset = (page - 1) * limit;
+      let queryText = '';
+      let countQuery = '';
+      const queryParams: any[] = [];
+
+      if (search) {
+        // Поиск по ID, username или telegram_id
+        const searchParam = `%${search}%`;
+        queryText = `
+          SELECT id, telegram_id, username, email, first_name, last_name, photo_url, balance, total_spent, join_date, created_at, updated_at 
+          FROM users 
+          WHERE username ILIKE $1 OR CAST(id AS TEXT) = $2 OR CAST(telegram_id AS TEXT) = $3
+          ORDER BY created_at DESC 
+          LIMIT $4 OFFSET $5
+        `;
+        countQuery = `
+          SELECT COUNT(*) as total 
+          FROM users 
+          WHERE username ILIKE $1 OR CAST(id AS TEXT) = $2 OR CAST(telegram_id AS TEXT) = $3
+        `;
+        queryParams.push(searchParam, search, search, limit, offset);
+      } else {
+        queryText = `
+          SELECT id, telegram_id, username, email, first_name, last_name, photo_url, balance, total_spent, join_date, created_at, updated_at 
+          FROM users 
+          ORDER BY created_at DESC 
+          LIMIT $1 OFFSET $2
+        `;
+        countQuery = 'SELECT COUNT(*) as total FROM users';
+        queryParams.push(limit, offset);
+      }
+
+      const [usersResult, countResult] = await Promise.all([
+        query(queryText, queryParams),
+        query(countQuery, search ? [queryParams[0], queryParams[1], queryParams[2]] : [])
+      ]);
+
+      const total = parseInt(countResult.rows[0].total);
+      const totalPages = Math.ceil(total / limit);
+
+      return {
+        users: usersResult.rows,
+        total,
+        totalPages
+      };
+    } catch (error) {
+      console.error('Error fetching users:', error);
+      throw error;
+    }
+  }
+
+  async updateUserBalanceById(userId: number, newBalance: number): Promise<User> {
+    const client = await getClient();
+    
+    try {
+      await client.query('BEGIN');
+
+      // Получаем текущий баланс пользователя
+      const currentUserResult = await client.query(
+        'SELECT balance FROM users WHERE id = $1',
+        [userId]
+      );
+
+      if (currentUserResult.rows.length === 0) {
+        throw new Error('User not found');
+      }
+
+      const oldBalance = parseFloat(currentUserResult.rows[0].balance);
+      const balanceChange = newBalance - oldBalance;
+
+      // Обновляем баланс пользователя на конкретное значение
+      const result = await client.query(
+        'UPDATE users SET balance = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2 RETURNING *',
+        [newBalance, userId]
+      );
+
+      // Создаем запись о транзакции только если баланс изменился
+      if (Math.abs(balanceChange) > 0.01) {
+        await client.query(
+          `INSERT INTO transactions (user_id, amount, type, status, payment_method) 
+           VALUES ($1, $2, $3, 'completed', 'admin_adjustment')`,
+          [userId, balanceChange, balanceChange > 0 ? 'deposit' : 'withdrawal']
+        );
+      }
+
+      await client.query('COMMIT');
+      
+      return result.rows[0];
+    } catch (error) {
+      await client.query('ROLLBACK');
+      console.error('Error updating user balance:', error);
+      throw error;
+    } finally {
+      client.release();
     }
   }
 

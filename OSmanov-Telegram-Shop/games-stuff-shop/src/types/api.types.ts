@@ -8,6 +8,11 @@ export interface GiftsCategories {
   data: GiftCategory[];
 }
 
+export interface SubcategoryInfo {
+  name: string;
+  categoryId?: number; // ID категории API, соответствующей этой подкатегории
+}
+
 export interface CategoryWithImage {
   id: number;
   name: string;
@@ -15,6 +20,8 @@ export interface CategoryWithImage {
   count: number;
   tags: string[];
   tagIDs: number[];
+  categoryIds?: number[]; // ID всех категорий API, относящихся к этой основной категории
+  subcategories?: SubcategoryInfo[]; // Подкатегории для этой категории
 }
 
 export interface ServiceItem {

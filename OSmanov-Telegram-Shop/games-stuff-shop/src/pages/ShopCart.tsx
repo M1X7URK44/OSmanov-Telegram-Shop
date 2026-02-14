@@ -5,10 +5,11 @@ import { useOrders } from '../hooks/useOrders';
 import { useCurrency } from '../hooks/useCurrency';
 import { type CheckoutItemResult } from '../services/orderService';
 import { useUser } from '../context/UserContext';
+import { promocodeService } from '../services/promocode.service';
 
 const ShopCartPage: React.FC = () => {
     const { state, updateQuantity, removeItem, clearCart, updateUserData, requiresUserData } = useCart();
-    const { items, total } = state;
+    const { items } = state;
     const { checkout, loading, error, result, validateCheckout, getStatusColor } = useOrders();
     const { convertToRub, formatRubles, usdToRubRate, loading: ratesLoading } = useCurrency();
 
@@ -16,8 +17,10 @@ const ShopCartPage: React.FC = () => {
     const [convertedPrices, setConvertedPrices] = useState<{ [key: number]: number }>({});
     const [convertedTotal, setConvertedTotal] = useState<number>(0);
     const [convertedResultTotal, setConvertedResultTotal] = useState<number | null>(null);
+    const [activeDiscount, setActiveDiscount] = useState<{ percent: number; code: string } | null>(null);
+    const [discountAmount, setDiscountAmount] = useState<number>(0);
 
-    const { user } = useUser();
+    const { user, refreshUser } = useUser();
 
     // Конвертация цен товаров в рубли
     useEffect(() => {
@@ -27,23 +30,37 @@ const ShopCartPage: React.FC = () => {
 
             for (const item of items) {
                 try {
-                    // Конвертируем цену за единицу товара
-                    const rubPrice = await convertToRub(item.price || 0, item.currency || 'USD');
-                    prices[item.service_id] = rubPrice;
-                    
-                    // Добавляем к общей сумме (цена × количество)
-                    totalRub += rubPrice * item.quantity;
+                    if (item.price) {
+                        // Конвертируем цену за единицу товара
+                        const rubPrice = await convertToRub(
+                            Number(item.price.toFixed(2)) || 0, 
+                            item.currency || 'USD'
+                        );
+                        prices[item.service_id] = Math.ceil(rubPrice);
+                        
+                        // Добавляем к общей сумме (цена × количество)
+                        totalRub += prices[item.service_id] * item.quantity;
+                    }
                 } catch (err) {
                     console.error(`Error converting price for item ${item.service_id}:`, err);
                     // Fallback на примерный курс
                     const fallbackPrice = (item.price || 0) * (usdToRubRate || 90);
-                    prices[item.service_id] = fallbackPrice;
-                    totalRub += fallbackPrice * item.quantity;
+                    prices[item.service_id] = Math.ceil(fallbackPrice);
+                    totalRub += prices[item.service_id] * item.quantity;
                 }
             }
 
             setConvertedPrices(prices);
-            setConvertedTotal(totalRub);
+            
+            // Применяем скидку если есть активный промокод
+            if (activeDiscount && activeDiscount.percent > 0) {
+                const discount = totalRub * (activeDiscount.percent / 100);
+                setDiscountAmount(discount);
+                setConvertedTotal(totalRub - discount);
+            } else {
+                setDiscountAmount(0);
+                setConvertedTotal(totalRub);
+            }
         };
 
         if (items.length > 0 && !ratesLoading) {
@@ -51,8 +68,9 @@ const ShopCartPage: React.FC = () => {
         } else {
             setConvertedPrices({});
             setConvertedTotal(0);
+            setDiscountAmount(0);
         }
-    }, [items, convertToRub, ratesLoading, usdToRubRate]);
+    }, [items, convertToRub, ratesLoading, usdToRubRate, activeDiscount]);
 
     // Конвертация общей суммы результата заказа
     useEffect(() => {
@@ -72,6 +90,30 @@ const ShopCartPage: React.FC = () => {
             convertResultTotal();
         }
     }, [result, convertToRub, usdToRubRate]);
+
+    // Проверка активного промокода на скидку
+    useEffect(() => {
+        const checkActiveDiscount = async () => {
+            if (user) {
+                try {
+                    const promocode = await promocodeService.getActiveDiscountPromocode(user.id);
+                    if (promocode) {
+                        setActiveDiscount({
+                            percent: promocode.value,
+                            code: promocode.code,
+                        });
+                    } else {
+                        setActiveDiscount(null);
+                    }
+                } catch (error) {
+                    console.error('Error checking active discount:', error);
+                    setActiveDiscount(null);
+                }
+            }
+        };
+
+        checkActiveDiscount();
+    }, [user]);
 
     const handleQuantityChange = (serviceId: number, newQuantity: number) => {
         if (newQuantity <= 0) {
@@ -105,18 +147,28 @@ const ShopCartPage: React.FC = () => {
         try {
             const userId = user?.id;
             await checkout(userId, items);
-            window.location.replace('/');
+            // Редирект будет после закрытия модального окна, если покупка успешна
+            window.location.replace('/profile');
         } catch (err) {
             console.error('Checkout error:', err);
             // Ошибка уже обработана в хуке useOrders
         }
     };
 
-    const handleCloseModal = () => {
+    const handleCloseModal = async () => {
         setShowCheckoutModal(false);
         // Очищаем корзину только если все заказы успешны
         if (result && result.data.total_failed === 0) {
             clearCart();
+            // Обновляем данные пользователя перед редиректом
+            try {
+                await refreshUser();
+            } catch (error) {
+                console.error('Error refreshing user data:', error);
+            }
+            // Перенаправляем на страницу профиля после успешной покупки
+            // Используем небольшую задержку, чтобы дать время приложению обработать изменения
+            window.location.replace('/profile');
         }
     };
 
@@ -138,14 +190,16 @@ const ShopCartPage: React.FC = () => {
         const rubPrice = convertedPrices[serviceId];
         const totalRub = rubPrice ? rubPrice * (items.find(item => item.service_id === serviceId)?.quantity || 1) : 0;
         
+        console.log(price, currency);
+
         return (
             <PriceContainer>
                 <RubPrice>
                     {rubPrice ? formatRubles(totalRub) : 'Загрузка...'}
                 </RubPrice>
-                <OriginalPrice>
+                {/* <OriginalPrice>
                     {price} {currency} × {items.find(item => item.service_id === serviceId)?.quantity || 1} = {(price * (items.find(item => item.service_id === serviceId)?.quantity || 1)).toFixed(2)} {currency}
-                </OriginalPrice>
+                </OriginalPrice> */}
             </PriceContainer>
         );
     };
@@ -241,13 +295,21 @@ const ShopCartPage: React.FC = () => {
                                 {items.reduce((total, item) => total + item.quantity, 0)}
                             </SummaryValue>
                         </SummaryRow>
+                        {activeDiscount && discountAmount > 0 && (
+                            <SummaryRow>
+                                <SummaryLabel>Скидка ({activeDiscount.percent}%):</SummaryLabel>
+                                <SummaryValue style={{ color: '#88FB47' }}>
+                                    -{formatRubles(discountAmount)}
+                                </SummaryValue>
+                            </SummaryRow>
+                        )}
                         <SummaryRow>
                             <SummaryLabel>Общая сумма:</SummaryLabel>
                             <SummaryValue>
                                 {convertedTotal > 0 ? formatRubles(convertedTotal) : 'Загрузка...'}
-                                <OriginalTotal>
+                                {/* <OriginalTotal>
                                     {total.toFixed(2)} USD
-                                </OriginalTotal>
+                                </OriginalTotal> */}
                             </SummaryValue>
                         </SummaryRow>
                     </TotalSummary>
@@ -485,11 +547,11 @@ const RubPrice = styled.div`
     font-weight: 600;
 `;
 
-const OriginalPrice = styled.div`
-    color: #737591;
-    font-family: "ChakraPetch-Regular";
-    font-size: 12px;
-`;
+// const OriginalPrice = styled.div`
+//     color: #737591;
+//     font-family: "ChakraPetch-Regular";
+//     font-size: 12px;
+// `;
 
 const DataInputContainer = styled.div`
     margin-top: 12px;
@@ -649,12 +711,12 @@ const SummaryValue = styled.span`
     gap: 2px;
 `;
 
-const OriginalTotal = styled.span`
-    color: #737591;
-    font-family: "ChakraPetch-Regular";
-    font-size: 12px;
-    font-weight: normal;
-`;
+// const OriginalTotal = styled.span`
+//     color: #737591;
+//     font-family: "ChakraPetch-Regular";
+//     font-size: 12px;
+//     font-weight: normal;
+// `;
 
 const CheckoutButton = styled.button`
     width: 100%;

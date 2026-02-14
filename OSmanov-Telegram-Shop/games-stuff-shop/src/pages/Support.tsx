@@ -254,7 +254,7 @@ const SupportPage: React.FC = () => {
           <InfoIcon>📧</InfoIcon>
           <InfoContent>
             <InfoTitle>Email поддержка</InfoTitle>
-            <InfoText>support@gifts-store.com</InfoText>
+            <InfoText>os-projects@mail.ru</InfoText>
           </InfoContent>
         </InfoCard>
 
@@ -266,11 +266,11 @@ const SupportPage: React.FC = () => {
           </InfoContent>
         </InfoCard>
 
-        <InfoCard>
-          <InfoIcon>📞</InfoIcon>
+        <InfoCard as="a" href="https://t.me/djosmanov" target="_blank" rel="noopener noreferrer">
+          <InfoIcon>✈️</InfoIcon>
           <InfoContent>
-            <InfoTitle>Телефон</InfoTitle>
-            <InfoText>+7 (900) 123-45-67</InfoText>
+            <InfoTitle>Telegram</InfoTitle>
+            <InfoText>@osGIFT_support</InfoText>
           </InfoContent>
         </InfoCard>
       </SupportInfo>
@@ -542,6 +542,9 @@ const InfoCard = styled.div`
   align-items: center;
   gap: 16px;
   transition: all 0.3s ease;
+  text-decoration: none;
+  color: inherit;
+  cursor: pointer;
 
   &:hover {
     background: rgba(255, 255, 255, 0.08);

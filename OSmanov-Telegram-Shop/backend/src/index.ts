@@ -7,6 +7,8 @@ import { giftsRoutes } from './routes/gifts.routes';
 import { userRoutes } from './routes/user.routes';
 import { cardLinkRoutes } from './routes/cardlink.routes';
 import { authRoutes } from './routes/auth.routes';
+import { adminRoutes } from './routes/admin.routes';
+import { promocodeRoutes } from './routes/promocode.routes';
 
 dotenv.config();
 
@@ -92,6 +94,16 @@ app.use('/api/auth', authRoutes);
 app.get('/api/health', (req, res) => {
   res.json({ status: 'OK', timestamp: new Date().toISOString() });
 });
+
+// Админ-Панель
+app.use('/api/admin', adminRoutes);
+
+// Промокоды - добавляем логирование перед роутами
+app.use('/api/promocodes', (req, res, next) => {
+  console.log(`📝 Promocode route hit: ${req.method} ${req.originalUrl} | Path: ${req.path}`);
+  next();
+});
+app.use('/api/promocodes', promocodeRoutes);
 
 app.listen(PORT, () => {
   console.log(`🚀 Server is running on http://localhost:${PORT}`);

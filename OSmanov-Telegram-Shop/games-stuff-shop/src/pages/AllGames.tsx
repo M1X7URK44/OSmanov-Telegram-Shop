@@ -11,6 +11,7 @@ import type {
 import { groupCategories } from "../utils/categoryUtils";
 import { CountryFlag } from "../utils/countryFlags";
 import AdvImage from "../assets/images/vpn-add.png";
+import AdvImageStars from "../assets/images/stars-add.png";
 
 import CartButton from '../components/CartButton';
 import { useCurrency } from '../hooks/useCurrency'; // Добавляем импорт
@@ -18,11 +19,14 @@ import { useCurrency } from '../hooks/useCurrency'; // Добавляем имп
 const AllGamesPage: React.FC = () => {
     const [categories, setCategories] = useState<CategoryWithImage[]>([]);
     const [selectedCategory, setSelectedCategory] = useState<CategoryWithImage | null>(null);
+    const [selectedSubcategory, setSelectedSubcategory] = useState<string | null>(null);
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [services, setServices] = useState<ServiceItem[]>([]);
     const [isServicesModalOpen, setIsServicesModalOpen] = useState(false);
     const [loading, setLoading] = useState(false);
     const [categoriesLoading, setCategoriesLoading] = useState(true);
+    const [loadingCategoryId, setLoadingCategoryId] = useState<number | null>(null); // ID категории, которая загружается
+    const [loadingSubcategoryName, setLoadingSubcategoryName] = useState<string | null>(null); // Название подкатегории, которая загружается
     
     // Добавляем хук для валюты
     const { convertToRub, formatRubles, loading: ratesLoading } = useCurrency();
@@ -55,8 +59,11 @@ const AllGamesPage: React.FC = () => {
             for (const service of services) {
                 if (service.price) {
                     try {
-                        const rubPrice = await convertToRub(service.price, service.currency || 'USD');
-                        converted[service.service_id] = rubPrice;
+                        const rubPrice = await convertToRub(
+                            Number(service.price.toFixed(2)), 
+                            service.currency || 'USD'
+                        );
+                        converted[service.service_id] = Math.ceil(rubPrice);
                     } catch (err) {
                         console.error(`Error converting price for service ${service.service_id}:`, err);
                         // Fallback на примерный курс
@@ -81,9 +88,9 @@ const AllGamesPage: React.FC = () => {
             return (
                 <ServicePrice>
                     <RubPrice>{formatRubles(rubPrice)}</RubPrice>
-                    <OriginalPrice>
+                    {/* <OriginalPrice>
                         {service.price} {service.currency || 'USD'}
-                    </OriginalPrice>
+                    </OriginalPrice> */}
                 </ServicePrice>
             );
         } else {
@@ -125,9 +132,167 @@ const AllGamesPage: React.FC = () => {
         };
     }, [isModalOpen, isServicesModalOpen]);
 
-    const handleCategoryClick = (category: CategoryWithImage) => {
-        setSelectedCategory(category);
-        setIsModalOpen(true);
+    const handleCategoryClick = async (category: CategoryWithImage) => {
+        // Проверяем, есть ли у категории подкатегории
+        if (category.subcategories && category.subcategories.length > 0) {
+            // Если есть подкатегории, показываем модальное окно с подкатегориями
+            setSelectedCategory(category);
+            setIsModalOpen(true);
+        } else if (category.categoryIds && category.categoryIds.length > 0) {
+            // Если нет подкатегорий, но есть categoryIds, загружаем товары из всех этих категорий
+            try {
+                setLoading(true);
+                setLoadingCategoryId(category.id); // Устанавливаем ID категории, которая загружается
+                setSelectedCategory(category);
+                setConvertedPrices({}); // Сбрасываем конвертированные цены
+                
+                // Загружаем товары для всех категорий
+                const allServices: ServiceItem[] = [];
+                
+                // Загружаем товары для каждой категории параллельно
+                const servicePromises = category.categoryIds.map(categoryId => 
+                    api.get<ServicesResponse>('/gifts/services/by-category', {
+                        params: { category_id: categoryId }
+                    }).then(response => response.data.data)
+                );
+                
+                const servicesArrays = await Promise.all(servicePromises);
+                
+                // Объединяем все товары в один массив
+                servicesArrays.forEach(services => {
+                    allServices.push(...services);
+                });
+                
+                // Удаляем дубликаты по service_id и фильтруем по наличию
+                const uniqueServices = Array.from(
+                    new Map(allServices.map(service => [service.service_id, service])).values()
+                )
+                .filter((item) => item.in_stock !== 0)
+                .sort((el1, el2) => el1.service_id - el2.service_id);
+                
+                setServices(uniqueServices);
+                setIsServicesModalOpen(true);
+            } catch (error) {
+                console.error('Error fetching services:', error);
+                alert('Ошибка при загрузке товаров');
+            } finally {
+                setLoading(false);
+                setLoadingCategoryId(null); // Сбрасываем ID категории после загрузки
+            }
+        } else {
+            // Fallback для старой логики (если categoryIds не определен)
+            setSelectedCategory(category);
+            if (category.tags.length === 0) {
+                handleCountrySelect(category.id.toString(), category.id);
+                return;
+            }
+            setIsModalOpen(true);
+        }
+    };
+
+    // Функция для извлечения кода страны из названия подкатегории
+    const extractCountryCode = (subcategoryName: string): string | null => {
+        // Паттерны для извлечения кода страны:
+        // 1. amazon.ae, amazon.au и т.д. -> извлекаем код после точки
+        // 2. Apple Gift Card | AU -> извлекаем код после |
+        // 3. Battle.net Gift Card | BR -> извлекаем код после |
+        // 4. И другие варианты
+        
+        const name = subcategoryName.trim();
+        
+        // Маппинг специальных кодов к стандартным кодам стран
+        const countryCodeMap: Record<string, string> = {
+            'USA': 'US',
+            'UK': 'UK',
+            'TRY': 'TR',
+            'ZAR': 'ZA',
+            'PLN': 'PL',
+            'INR': 'IN',
+            'USD': 'US' // USD обычно означает США
+        };
+        
+        // Коды, которые НЕ являются странами (регионы, платформы и т.д.)
+        const nonCountryCodes = ['GLOB', 'CIS', 'LATAM', 'MENA', 'ASIA', 'ROW', 'GL'];
+        
+        // Паттерн 1: amazon.ae, amazon.au и т.д.
+        const amazonPattern = /^amazon\.([a-z]{2})/i;
+        const amazonMatch = name.match(amazonPattern);
+        if (amazonMatch) {
+            const code = amazonMatch[1].toUpperCase();
+            // Проверяем, что это не специальный код
+            if (!nonCountryCodes.includes(code)) {
+                return code;
+            }
+        }
+        
+        // Паттерн 2: Название | GLOB | Platform -> пропускаем GLOB
+        const globPattern = /\|\s*GLOB\s*\|\s*([A-Z\s]+)$/;
+        if (globPattern.test(name)) {
+            return null; // Глобальные категории без флага
+        }
+        
+        // Паттерн 3: Название | КОД (но не GLOB, CIS и т.д.)
+        const pipePattern = /\|\s*([A-Z]{2,5})(?:\s|$)/;
+        const pipeMatch = name.match(pipePattern);
+        if (pipeMatch) {
+            let code = pipeMatch[1].toUpperCase();
+            // Проверяем маппинг специальных кодов
+            if (countryCodeMap[code]) {
+                code = countryCodeMap[code];
+            }
+            // Проверяем, что это не специальный код региона/платформы
+            if (!nonCountryCodes.includes(code)) {
+                return code;
+            }
+        }
+        
+        // Паттерн 4: Проверяем, есть ли двухбуквенный код в конце или после пробела
+        const endCodePattern = /\s([A-Z]{2,5})(?:\s|$)/;
+        const endMatch = name.match(endCodePattern);
+        if (endMatch) {
+            let code = endMatch[1].toUpperCase();
+            // Проверяем маппинг специальных кодов
+            if (countryCodeMap[code]) {
+                code = countryCodeMap[code];
+            }
+            // Проверяем, что это валидный код страны и не специальный код
+            const validCountryCodes = ['RU', 'US', 'GB', 'EU', 'BR', 'JP', 'IN', 'AU', 'CA', 'MX', 'DE', 'FR', 'IT', 'ES', 'PL', 'TR', 'AE', 'SA', 'ID', 'PH', 'TH', 'VN', 'SG', 'MY', 'HK', 'KR', 'CN', 'NZ', 'ZA', 'CO', 'PT', 'IE', 'BE', 'AT', 'CZ', 'FI', 'GR', 'HR', 'LU', 'NL', 'OM', 'RO', 'SK', 'BH', 'KW', 'QA', 'LB', 'DZ'];
+            if (validCountryCodes.includes(code) && !nonCountryCodes.includes(code)) {
+                return code;
+            }
+        }
+        
+        return null;
+    };
+
+    const handleSubcategoryClick = async (subcategoryName: string, categoryId: number | undefined) => {
+        if (!categoryId) {
+            alert('Категория не найдена');
+            return;
+        }
+
+        try {
+            setLoading(true);
+            setLoadingSubcategoryName(subcategoryName); // Устанавливаем загружаемую подкатегорию
+            setSelectedSubcategory(subcategoryName); // Сохраняем выбранную подкатегорию
+            setConvertedPrices({}); // Сбрасываем конвертированные цены
+            
+            // Получаем сервисы по category_id подкатегории
+            const response = await api.get<ServicesResponse>('/gifts/services/by-category', {
+                params: { category_id: categoryId }
+            });
+            
+            setServices(response.data.data.sort((el1, el2) => el1.service_id - el2.service_id).filter((item) => item.in_stock !== 0));
+            setIsServicesModalOpen(true);
+            setIsModalOpen(false); // Закрываем модальное окно с подкатегориями
+        } catch (error) {
+            console.error('Error fetching services:', error);
+            alert('Ошибка при загрузке сервисов');
+        } finally {
+            setLoading(false);
+            setLoadingCategoryId(null);
+            setLoadingSubcategoryName(null); // Сбрасываем загружаемую подкатегорию
+        }
     };
 
     const handleCountrySelect = async (tag: string, tagID: number) => {
@@ -157,12 +322,17 @@ const AllGamesPage: React.FC = () => {
     const closeModal = () => {
         setIsModalOpen(false);
         setSelectedCategory(null);
+        setSelectedSubcategory(null);
+        setLoadingSubcategoryName(null); // Сбрасываем загружаемую подкатегорию при закрытии
     };
 
     const closeServicesModal = () => {
         setIsServicesModalOpen(false);
         setServices([]);
         setConvertedPrices({}); // Очищаем конвертированные цены при закрытии
+        setSelectedCategory(null); // Очищаем выбранную категорию
+        setSelectedSubcategory(null); // Очищаем выбранную подкатегорию
+        setLoadingSubcategoryName(null); // Очищаем загружаемую подкатегорию
     };
 
     return (
@@ -174,18 +344,29 @@ const AllGamesPage: React.FC = () => {
                 </LoadingContainer>
             ) : (
                 <div>
-                    <AdvBlock onClick={() => window.open('https://t.me/VPNos_bot', '_blank')}>
-                        <img src={AdvImage} alt="AdvImage" />
-                        <InfoAdvBlock>
-                            <AdvTitle>osVPN | Быстрый и Надежный VPN</AdvTitle>
-                            <AdvAbout>🛡 Самый быстрый и безопасный VPN-сервис прямо в Телеграме!</AdvAbout>
-                        </InfoAdvBlock>
-                    </AdvBlock>
+                    <AdvBlocks>
+                        <AdvBlock onClick={() => window.open('https://t.me/VPNos_bot', '_blank')}>
+                            <AdvStyledImage src={AdvImage} alt="AdvImage" />
+                            <InfoAdvBlock>
+                                <AdvTitle>osVPN | Быстрый и Надежный VPN</AdvTitle>
+                                <AdvAbout>🛡 Самый быстрый и безопасный VPN-сервис прямо в Телеграме!</AdvAbout>
+                            </InfoAdvBlock>
+                        </AdvBlock>
+                        <AdvBlock onClick={() => window.open('https://t.me/osStars_bot', '_blank')}>
+                            <AdvStyledImage src={AdvImageStars} alt="AdvImageStars" />
+                            <InfoAdvBlock>
+                                <AdvTitle>osSTARS | Звезды и Премиум</AdvTitle>
+                                <AdvAbout>🌟 Самые выгодные цены на Telegram Stars и Telegram Premium только здесь!</AdvAbout>
+                            </InfoAdvBlock>
+                        </AdvBlock>
+                    </AdvBlocks>
                     <CategoriesGrid>
-                        {categories.filter((category) => category.tags.length > 0).map((category) => (
+                        {/* {categories.filter((category) => category.tags.length > 0).map((category) => ( */}
+                        {categories.map((category) => (
                             <CategoryCard 
                                 key={category.id} 
                                 onClick={() => handleCategoryClick(category)}
+                                $isLoading={loadingCategoryId === category.id}
                             >
                                 <CategoryImage 
                                     src={`/assets/images/Gifts/${category.image}.png`} 
@@ -193,7 +374,13 @@ const AllGamesPage: React.FC = () => {
                                     onError={(e) => {
                                         e.currentTarget.src = '/assets/images/Gifts/games_pc_mac.png';
                                     }}
+                                    $isLoading={loadingCategoryId === category.id}
                                 />
+                                {loadingCategoryId === category.id && (
+                                    <LoadingOverlay>
+                                        <CategorySpinner />
+                                    </LoadingOverlay>
+                                )}
                                 <CategoryInfo>
                                     <CategoryName>{category.name}</CategoryName>
                                 </CategoryInfo>
@@ -203,36 +390,86 @@ const AllGamesPage: React.FC = () => {
                 </div>
             )}
 
-            {/* Модальное окно для выбора страны */}
+            {/* Модальное окно для выбора подкатегории или региона */}
             {isModalOpen && selectedCategory && (
                 <ModalOverlay onClick={closeModal}>
                     <ModalContent onClick={(e) => e.stopPropagation()}>
                         <ModalHeader>
-                            <ModalTitle>Выберите регион - {selectedCategory.name}</ModalTitle>
+                            <ModalTitle>
+                                {selectedCategory.subcategories && selectedCategory.subcategories.length > 0
+                                    ? `Выберите подкатегорию - ${selectedCategory.name}`
+                                    : `Выберите регион - ${selectedCategory.name}`
+                                }
+                            </ModalTitle>
                             <CloseButton onClick={closeModal}>×</CloseButton>
                         </ModalHeader>
                         
                         <ModalBody>
-                            <CountriesList>
-                                {selectedCategory.tags.map((tag, index) => (
-                                    <CountryItem 
-                                        key={selectedCategory.tagIDs[index]}
-                                        onClick={() => handleCountrySelect(tag, selectedCategory.tagIDs[index])}
-                                    >
-                                        <CountryFlagContainer>
-                                            <CountryFlag countryCode={tag} size={20} />
-                                        </CountryFlagContainer>
-                                        <CountryName>{tag}</CountryName>
-                                        <CountryArrow>→</CountryArrow>
-                                    </CountryItem>
-                                ))}
-                                
-                                {selectedCategory.tags.length === 0 && (
-                                    <EmptyMessage>
-                                        Нет доступных регионов
-                                    </EmptyMessage>
-                                )}
-                            </CountriesList>
+                            {selectedCategory.subcategories && selectedCategory.subcategories.length > 0 ? (
+                                <CountriesList>
+                                    {selectedCategory.subcategories.map((subcategory, index) => {
+                                        const countryCode = extractCountryCode(subcategory.name);
+                                        const isLoading = loadingSubcategoryName === subcategory.name;
+                                        
+                                        return (
+                                            <CountryItem 
+                                                key={`${subcategory.name}-${index}`}
+                                                onClick={() => handleSubcategoryClick(subcategory.name, subcategory.categoryId)}
+                                                $disabled={!subcategory.categoryId || isLoading}
+                                                $isLoading={isLoading}
+                                            >
+                                                <CategoryImageContainer>
+                                                    <SubcategoryImage 
+                                                        src={`/assets/images/Gifts/${selectedCategory.image}.png`}
+                                                        alt={selectedCategory.name}
+                                                        onError={(e) => {
+                                                            e.currentTarget.src = '/assets/images/Gifts/games_pc_mac.png';
+                                                        }}
+                                                    />
+                                                </CategoryImageContainer>
+                                                {countryCode && (
+                                                    <SubcategoryFlagContainer>
+                                                        <CountryFlag countryCode={countryCode} size={16} />
+                                                    </SubcategoryFlagContainer>
+                                                )}
+                                                <CountryName>{subcategory.name}</CountryName>
+                                                {isLoading ? (
+                                                    <SubcategorySpinner />
+                                                ) : (
+                                                    subcategory.categoryId && <CountryArrow>→</CountryArrow>
+                                                )}
+                                            </CountryItem>
+                                        );
+                                    })}
+                                    
+                                    {selectedCategory.subcategories.length === 0 && (
+                                        <EmptyMessage>
+                                            Нет доступных подкатегорий
+                                        </EmptyMessage>
+                                    )}
+                                </CountriesList>
+                            ) : (
+                                <CountriesList>
+                                    {selectedCategory.tags.map((tag, index) => (
+                                        <CountryItem 
+                                            key={selectedCategory.tagIDs[index]}
+                                            onClick={() => handleCountrySelect(tag, selectedCategory.tagIDs[index])}
+                                        >
+                                            <CountryFlagContainer>
+                                                <CountryFlag countryCode={tag} size={20} />
+                                            </CountryFlagContainer>
+                                            <CountryName>{tag}</CountryName>
+                                            <CountryArrow>→</CountryArrow>
+                                        </CountryItem>
+                                    ))}
+                                    
+                                    {selectedCategory.tags.length === 0 && (
+                                        <EmptyMessage>
+                                            Нет доступных регионов
+                                        </EmptyMessage>
+                                    )}
+                                </CountriesList>
+                            )}
                         </ModalBody>
                     </ModalContent>
                 </ModalOverlay>
@@ -243,7 +480,14 @@ const AllGamesPage: React.FC = () => {
                 <ModalOverlay onClick={closeServicesModal}>
                     <ModalContent onClick={(e) => e.stopPropagation()}>
                         <ModalHeader>
-                            <ModalTitle>Доступные сервисы</ModalTitle>
+                            <ModalTitle>
+                                {selectedSubcategory 
+                                    ? `${selectedSubcategory}` 
+                                    : selectedCategory 
+                                        ? `${selectedCategory.name}` 
+                                        : 'Доступные товары'
+                                }
+                            </ModalTitle>
                             <CloseButton onClick={closeServicesModal}>×</CloseButton>
                         </ModalHeader>
                         
@@ -389,6 +633,13 @@ const PriceLoading = styled.span`
 `;
 
 // Остальные стили остаются без изменений:
+const AdvBlocks = styled.div`
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin-bottom: 24px;
+`
+
 const AdvBlock = styled.div`
     display: flex;
     flex-direction: row;
@@ -397,7 +648,6 @@ const AdvBlock = styled.div`
     border-radius: 14px;
     box-sizing: border-box;
     padding: 3px;
-    margin-bottom: 24px;
     cursor: pointer;
 
     min-width: 320px;
@@ -406,6 +656,15 @@ const AdvBlock = styled.div`
     margin-left: auto;
     margin-right: auto;
 `
+
+const AdvStyledImage = styled.img`
+    max-width: 100px;
+    max-height: 100px;
+    border-radius: 14px;
+    margin: 5px;
+    margin-right: 10px;
+`
+
 const InfoAdvBlock = styled.div`
     display: flex;
     flex-direction: column;
@@ -436,13 +695,13 @@ const CategoriesGrid = styled.div`
     animation: ${fadeIn} 0.5s ease-out;
 `;
 
-const CategoryCard = styled.div`
-    background: rgba(255, 255, 255, 0.1);
+const CategoryCard = styled.div<{ $isLoading?: boolean }>`
+    background: rgba(255, 255, 255, 1);
     border-radius: 12px;
     text-align: center;
     transition: all 0.3s ease;
     border: 1px solid rgba(255, 255, 255, 0.2);
-    cursor: pointer;
+    cursor: ${props => props.$isLoading ? 'wait' : 'pointer'};
     flex: 1 0 45%;
     box-sizing: border-box;
 
@@ -452,19 +711,46 @@ const CategoryCard = styled.div`
     aspect-ratio: 1;
 
     &:hover {
-        transform: translateY(-5px);
-        background: rgba(255, 255, 255, 0.15);
-        box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
+        transform: ${props => props.$isLoading ? 'none' : 'translateY(-5px)'};
+        background: ${props => props.$isLoading ? 'rgba(255, 255, 255, 1)' : 'rgba(255, 255, 255, 0.15)'};
+        box-shadow: ${props => props.$isLoading ? 'none' : '0 10px 25px rgba(0, 0, 0, 0.2)'};
     }
 
     position: relative;
+    opacity: ${props => props.$isLoading ? 0.7 : 1};
 `;
 
-const CategoryImage = styled.img`
+const CategoryImage = styled.img<{ $isLoading?: boolean }>`
     width: 100%;
     height: 100%;
     border-radius: 8px;
     object-fit: cover;
+    opacity: ${props => props.$isLoading ? 0.5 : 1};
+    transition: opacity 0.3s ease;
+`;
+
+const LoadingOverlay = styled.div`
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 0, 0, 0.4);
+    backdrop-filter: blur(4px);
+    border-radius: 12px;
+    z-index: 10;
+`;
+
+const CategorySpinner = styled.div`
+    width: 40px;
+    height: 40px;
+    border: 3px solid rgba(136, 251, 71, 0.3);
+    border-top: 3px solid #88FB47;
+    border-radius: 50%;
+    animation: ${spin} 1s linear infinite;
 `;
 
 const CategoryInfo = styled.div`
@@ -567,16 +853,18 @@ const CountriesList = styled.div`
     flex-direction: column;
 `;
 
-const CountryItem = styled.div`
+const CountryItem = styled.div<{ $disabled?: boolean; $isLoading?: boolean }>`
     display: flex;
     align-items: center;
     padding: 16px 24px;
-    cursor: pointer;
+    cursor: ${props => (props.$disabled || props.$isLoading) ? 'not-allowed' : 'pointer'};
     transition: all 0.3s ease;
     border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    opacity: ${props => (props.$disabled || props.$isLoading) ? 0.7 : 1};
+    position: relative;
 
     &:hover {
-        background: rgba(255, 255, 255, 0.05);
+        background: ${props => (props.$disabled || props.$isLoading) ? 'transparent' : 'rgba(255, 255, 255, 0.05)'};
     }
 
     &:last-child {
@@ -591,6 +879,47 @@ const CountryFlagContainer = styled.div`
   margin-right: 12px;
   width: 24px;
   height: 18px;
+`;
+
+const CategoryImageContainer = styled.div`
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-right: 12px;
+  width: 40px;
+  height: 40px;
+  border-radius: 8px;
+  overflow: hidden;
+  flex-shrink: 0;
+  background: rgba(255, 255, 255, 1);
+`;
+
+const SubcategoryImage = styled.img`
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+`;
+
+const SubcategoryFlagContainer = styled.div`
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-right: 8px;
+  width: 20px;
+  height: 15px;
+  flex-shrink: 0;
+  border-radius: 2px;
+  overflow: hidden;
+`;
+
+const SubcategorySpinner = styled.div`
+  width: 16px;
+  height: 16px;
+  border: 2px solid rgba(136, 251, 71, 0.3);
+  border-top: 2px solid #88FB47;
+  border-radius: 50%;
+  animation: ${spin} 1s linear infinite;
+  margin-left: auto;
 `;
 
 const CountryName = styled.span`

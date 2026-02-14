@@ -1,10 +1,3 @@
--- Удаляем существующие таблицы (осторожно - удалит данные!)
-DROP TABLE IF EXISTS purchases CASCADE;
-
-DROP TABLE IF EXISTS transactions CASCADE;
-
-DROP TABLE IF EXISTS users CASCADE;
-
 -- Таблица пользователей
 CREATE TABLE
     users (
@@ -21,6 +14,30 @@ CREATE TABLE
         join_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+
+-- Таблица администраторов
+CREATE TABLE
+    admin_users (
+        id SERIAL PRIMARY KEY,
+        username VARCHAR(50) UNIQUE NOT NULL,
+        email VARCHAR(255) UNIQUE NOT NULL,
+        password_hash VARCHAR(255) NOT NULL,
+        role VARCHAR(20) CHECK (role IN ('admin', 'superadmin')) DEFAULT 'admin',
+        is_active BOOLEAN DEFAULT true,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+
+-- Таблица настроек администратора
+CREATE TABLE
+    admin_settings (
+        id SERIAL PRIMARY KEY,
+        usd_to_rub_rate DECIMAL(10, 2) NOT NULL DEFAULT 90.00,
+        min_deposit_amount DECIMAL(15, 2) DEFAULT 100.00,
+        max_deposit_amount DECIMAL(15, 2) DEFAULT 100000.00,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_by INTEGER REFERENCES admin_users (id) ON DELETE SET NULL
     );
 
 -- Таблица транзакций
@@ -57,18 +74,18 @@ CREATE TABLE
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
 
--- Индексы
-CREATE INDEX idx_users_telegram_id ON users (telegram_id);
+-- Создаем начальные настройки
+INSERT INTO
+    admin_settings (
+        usd_to_rub_rate,
+        min_deposit_amount,
+        max_deposit_amount,
+        updated_by
+    )
+VALUES
+    (90.00, 100.00, 100000.00, 1) ON CONFLICT (id) DO NOTHING;
 
-CREATE INDEX idx_users_email ON users (email);
-
-CREATE INDEX idx_transactions_user_id ON transactions (user_id);
-
-CREATE INDEX idx_purchases_user_id ON purchases (user_id);
-
-CREATE INDEX idx_purchases_custom_id ON purchases (custom_id);
-
--- Тестовые данные (БЕЗ фиксированного ID)
+-- Тестовые данные пользователя (БЕЗ фиксированного ID)
 INSERT INTO
     users (
         telegram_id,
@@ -98,6 +115,62 @@ SET
     balance = EXCLUDED.balance,
     total_spent = EXCLUDED.total_spent,
     updated_at = CURRENT_TIMESTAMP;
+
+-- Индексы для users
+CREATE INDEX idx_users_telegram_id ON users (telegram_id);
+
+CREATE INDEX idx_users_email ON users (email);
+
+-- Индексы для admin_users
+CREATE INDEX idx_admin_users_username ON admin_users (username);
+
+CREATE INDEX idx_admin_users_email ON admin_users (email);
+
+CREATE INDEX idx_admin_users_role ON admin_users (role);
+
+CREATE INDEX idx_admin_users_is_active ON admin_users (is_active);
+
+-- Индексы для admin_settings
+CREATE INDEX idx_admin_settings_updated_at ON admin_settings (updated_at);
+
+-- Индексы для транзакций и покупок
+CREATE INDEX idx_transactions_user_id ON transactions (user_id);
+
+CREATE INDEX idx_purchases_user_id ON purchases (user_id);
+
+CREATE INDEX idx_purchases_custom_id ON purchases (custom_id);
+
+-- Таблица промокодов
+CREATE TABLE
+    promocodes (
+        id SERIAL PRIMARY KEY,
+        code VARCHAR(50) UNIQUE NOT NULL,
+        type VARCHAR(20) CHECK (type IN ('balance', 'discount')) NOT NULL,
+        value DECIMAL(15, 2) NOT NULL,
+        -- Для balance: сумма начисления в USD
+        -- Для discount: процент скидки (0-100)
+        is_active BOOLEAN DEFAULT true,
+        created_by INTEGER REFERENCES admin_users (id) ON DELETE SET NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+
+-- Таблица использования промокодов
+CREATE TABLE
+    promocode_usage (
+        id SERIAL PRIMARY KEY,
+        promocode_id INTEGER REFERENCES promocodes (id) ON DELETE CASCADE,
+        user_id INTEGER REFERENCES users (id) ON DELETE CASCADE,
+        used_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(promocode_id, user_id)
+    );
+
+-- Индексы для промокодов
+CREATE INDEX idx_promocodes_code ON promocodes (code);
+CREATE INDEX idx_promocodes_type ON promocodes (type);
+CREATE INDEX idx_promocodes_is_active ON promocodes (is_active);
+CREATE INDEX idx_promocode_usage_promocode_id ON promocode_usage (promocode_id);
+CREATE INDEX idx_promocode_usage_user_id ON promocode_usage (user_id);
 
 -- Проверяем создание таблиц
 SELECT
