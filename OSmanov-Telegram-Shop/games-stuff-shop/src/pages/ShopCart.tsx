@@ -5,6 +5,7 @@ import { useOrders } from '../hooks/useOrders';
 import { useCurrency } from '../hooks/useCurrency';
 import { type CheckoutItemResult } from '../services/orderService';
 import { useUser } from '../context/UserContext';
+import { promocodeService } from '../services/promocode.service';
 
 const ShopCartPage: React.FC = () => {
     const { state, updateQuantity, removeItem, clearCart, updateUserData, requiresUserData } = useCart();
@@ -16,8 +17,10 @@ const ShopCartPage: React.FC = () => {
     const [convertedPrices, setConvertedPrices] = useState<{ [key: number]: number }>({});
     const [convertedTotal, setConvertedTotal] = useState<number>(0);
     const [convertedResultTotal, setConvertedResultTotal] = useState<number | null>(null);
+    const [activeDiscount, setActiveDiscount] = useState<{ percent: number; code: string } | null>(null);
+    const [discountAmount, setDiscountAmount] = useState<number>(0);
 
-    const { user } = useUser();
+    const { user, refreshUser } = useUser();
 
     // Конвертация цен товаров в рубли
     useEffect(() => {
@@ -48,7 +51,16 @@ const ShopCartPage: React.FC = () => {
             }
 
             setConvertedPrices(prices);
-            setConvertedTotal(totalRub);
+            
+            // Применяем скидку если есть активный промокод
+            if (activeDiscount && activeDiscount.percent > 0) {
+                const discount = totalRub * (activeDiscount.percent / 100);
+                setDiscountAmount(discount);
+                setConvertedTotal(totalRub - discount);
+            } else {
+                setDiscountAmount(0);
+                setConvertedTotal(totalRub);
+            }
         };
 
         if (items.length > 0 && !ratesLoading) {
@@ -56,8 +68,9 @@ const ShopCartPage: React.FC = () => {
         } else {
             setConvertedPrices({});
             setConvertedTotal(0);
+            setDiscountAmount(0);
         }
-    }, [items, convertToRub, ratesLoading, usdToRubRate]);
+    }, [items, convertToRub, ratesLoading, usdToRubRate, activeDiscount]);
 
     // Конвертация общей суммы результата заказа
     useEffect(() => {
@@ -77,6 +90,30 @@ const ShopCartPage: React.FC = () => {
             convertResultTotal();
         }
     }, [result, convertToRub, usdToRubRate]);
+
+    // Проверка активного промокода на скидку
+    useEffect(() => {
+        const checkActiveDiscount = async () => {
+            if (user) {
+                try {
+                    const promocode = await promocodeService.getActiveDiscountPromocode(user.id);
+                    if (promocode) {
+                        setActiveDiscount({
+                            percent: promocode.value,
+                            code: promocode.code,
+                        });
+                    } else {
+                        setActiveDiscount(null);
+                    }
+                } catch (error) {
+                    console.error('Error checking active discount:', error);
+                    setActiveDiscount(null);
+                }
+            }
+        };
+
+        checkActiveDiscount();
+    }, [user]);
 
     const handleQuantityChange = (serviceId: number, newQuantity: number) => {
         if (newQuantity <= 0) {
@@ -110,18 +147,28 @@ const ShopCartPage: React.FC = () => {
         try {
             const userId = user?.id;
             await checkout(userId, items);
-            window.location.replace('/');
+            // Редирект будет после закрытия модального окна, если покупка успешна
+            window.location.replace('/profile');
         } catch (err) {
             console.error('Checkout error:', err);
             // Ошибка уже обработана в хуке useOrders
         }
     };
 
-    const handleCloseModal = () => {
+    const handleCloseModal = async () => {
         setShowCheckoutModal(false);
         // Очищаем корзину только если все заказы успешны
         if (result && result.data.total_failed === 0) {
             clearCart();
+            // Обновляем данные пользователя перед редиректом
+            try {
+                await refreshUser();
+            } catch (error) {
+                console.error('Error refreshing user data:', error);
+            }
+            // Перенаправляем на страницу профиля после успешной покупки
+            // Используем небольшую задержку, чтобы дать время приложению обработать изменения
+            window.location.replace('/profile');
         }
     };
 
@@ -248,6 +295,14 @@ const ShopCartPage: React.FC = () => {
                                 {items.reduce((total, item) => total + item.quantity, 0)}
                             </SummaryValue>
                         </SummaryRow>
+                        {activeDiscount && discountAmount > 0 && (
+                            <SummaryRow>
+                                <SummaryLabel>Скидка ({activeDiscount.percent}%):</SummaryLabel>
+                                <SummaryValue style={{ color: '#88FB47' }}>
+                                    -{formatRubles(discountAmount)}
+                                </SummaryValue>
+                            </SummaryRow>
+                        )}
                         <SummaryRow>
                             <SummaryLabel>Общая сумма:</SummaryLabel>
                             <SummaryValue>

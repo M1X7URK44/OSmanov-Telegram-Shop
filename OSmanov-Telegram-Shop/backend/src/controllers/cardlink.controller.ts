@@ -7,7 +7,7 @@ import { CardLinkCreatePaymentRequest, CardLinkWebhookPayload } from '../types/c
 export class CardLinkController {
   async createPayment(req: Request, res: Response): Promise<void> {
     try {
-      const { amount, order_id, description, user_id, success_url, fail_url }: CardLinkCreatePaymentRequest = req.body;
+      const { amount, order_id, description, user_id, success_url, fail_url, payer_pays_commission }: CardLinkCreatePaymentRequest = req.body;
 
       if (!amount || amount <= 0) {
         res.status(400).json({
@@ -33,7 +33,7 @@ export class CardLinkController {
         payment_type: 'normal',
         currency_in: 'RUB',
         custom: `user_${user_id}`,
-        payer_pays_commission: 1,
+        payer_pays_commission: payer_pays_commission !== undefined ? payer_pays_commission : 1, // По умолчанию 1, если не указано
         name: 'Пополнение баланса',
         ttl: 3600, // 1 час
         success_url: `${process.env.FRONTEND_URL}`,

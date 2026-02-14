@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import styled, { keyframes } from 'styled-components';
 import { userApi } from '../api/user.api';
@@ -6,6 +6,7 @@ import { useUser } from '../context/UserContext';
 import { cardLinkService } from '../services/cardlink.service';
 import { useCurrency } from '../hooks/useCurrency';
 import { useTelegram } from '../context/TelegramContext';
+import { promocodeService } from '../services/promocode.service';
 
 const ProfilePage: React.FC = () => {
   const { user, profile, loading, error, refreshUser, updateBalance } = useUser();
@@ -21,6 +22,9 @@ const ProfilePage: React.FC = () => {
 
   const [processingCardLink, setProcessingCardLink] = useState<boolean>(false);
   const [paymentStatus, setPaymentStatus] = useState<string>('');
+  
+  // Ref для хранения ссылки на интервал проверки статуса платежа
+  const paymentCheckIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   const [copyStatus, setCopyStatus] = useState<{ [key: string]: boolean }>({});
   const [loadingOrder, setLoadingOrder] = useState<{ [key: string]: boolean }>({});
@@ -29,6 +33,11 @@ const ProfilePage: React.FC = () => {
   const [convertedTotalSpent, setConvertedTotalSpent] = useState<number | null>(null);
 
   const [convertedBalance, setConvertedBalance] = useState<number | undefined>();
+
+  // Состояние для промокодов
+  const [promocodeInput, setPromocodeInput] = useState<string>('');
+  const [activatingPromocode, setActivatingPromocode] = useState<boolean>(false);
+  const [promocodeMessage, setPromocodeMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
 
   useEffect(() => {
         const convertBalance = async () => {
@@ -146,9 +155,9 @@ const ProfilePage: React.FC = () => {
       }
 
       // Форматируем данные для копирования
-      const textToCopy = await formatOrderInfoForCopy(orderInfo, purchase);
+      const textToCopy = await formatOrderInfoForCopy(orderInfo);
       
-      // Копируем в буфер обмена с поддержкой мобильных устройств
+      // Пытаемся скопировать автоматически
       await copyToClipboard(textToCopy);
       
       // Показываем статус успешного копирования
@@ -159,7 +168,13 @@ const ProfilePage: React.FC = () => {
 
     } catch (error) {
       console.error('Error copying order info:', error);
-      alert('Не удалось скопировать информацию о заказе');
+      // В случае ошибки показываем модальное окно для ручного копирования
+      const orderInfo = await getOrderInfoFromDatabase(purchase.custom_id);
+      if (orderInfo) {
+        const displayText = await formatOrderInfoForManualCopy(orderInfo, purchase);
+        const copyText = await formatOrderInfoForCopy(orderInfo);
+        showTextForManualCopy(displayText, copyText);
+      }
     } finally {
       setLoadingOrder(prev => ({ ...prev, [purchase.id]: false }));
     }
@@ -210,14 +225,14 @@ const ProfilePage: React.FC = () => {
       
     } catch (fallbackError) {
       console.error('Fallback copy failed:', fallbackError);
-      
-      // Последний вариант - показываем текст для ручного копирования
-      showTextForManualCopy(text);
+      // Выбрасываем ошибку дальше, чтобы обработать её на более высоком уровне
+      throw fallbackError;
     }
   };
 
-  // Функция для показа текста в модальном окне для ручного копирования
-  const showTextForManualCopy = (text: string) => {
+  // Обновленная функция для показа текста в модальном окне для ручного копирования
+  // displayText - полный текст для отображения, copyText - только PIN коды для копирования
+  const showTextForManualCopy = (displayText: string, copyText: string) => {
     // Создаем модальное окно с текстом
     const modal = document.createElement('div');
     modal.style.cssText = `
@@ -226,7 +241,7 @@ const ProfilePage: React.FC = () => {
       left: 0;
       right: 0;
       bottom: 0;
-      background: rgba(0, 0, 0, 0.8);
+      background: rgba(0, 0, 0, 0.9);
       display: flex;
       flex-direction: column;
       align-items: center;
@@ -246,17 +261,20 @@ const ProfilePage: React.FC = () => {
       overflow-y: auto;
       color: white;
       font-family: system-ui;
+      width: 100%;
     `;
     
     const textElement = document.createElement('pre');
     textElement.style.cssText = `
       white-space: pre-wrap;
       word-wrap: break-word;
-      margin: 0 0 15px 0;
+      margin: 0 0 20px 0;
       font-size: 14px;
       line-height: 1.4;
+      user-select: text;
+      -webkit-user-select: text;
     `;
-    textElement.textContent = text;
+    textElement.textContent = displayText;
     
     const message = document.createElement('div');
     message.style.cssText = `
@@ -268,11 +286,50 @@ const ProfilePage: React.FC = () => {
     `;
     message.textContent = 'Выделите текст и скопируйте вручную';
     
-    const closeButton = document.createElement('button');
-    closeButton.style.cssText = `
+    // Добавляем кнопку для автоматического копирования (только PIN коды)
+    const copyButton = document.createElement('button');
+    copyButton.style.cssText = `
       background: #88FB47;
       color: #1a1a2e;
       border: none;
+      border-radius: 8px;
+      padding: 12px 24px;
+      font-size: 16px;
+      font-weight: bold;
+      cursor: pointer;
+      width: 100%;
+      margin-bottom: 10px;
+    `;
+    copyButton.textContent = copyText ? 'Скопировать PIN коды' : 'Закрыть';
+    copyButton.onclick = async () => {
+      if (!copyText) {
+        document.body.removeChild(modal);
+        return;
+      }
+      try {
+        // Копируем только PIN коды
+        await copyToClipboard(copyText);
+        copyButton.textContent = '✅ Скопировано!';
+        copyButton.style.background = '#27C151';
+        setTimeout(() => {
+          copyButton.textContent = copyText ? 'Скопировать PIN коды' : 'Закрыть';
+          copyButton.style.background = '#88FB47';
+        }, 2000);
+      } catch (error) {
+        copyButton.textContent = '❌ Ошибка копирования';
+        copyButton.style.background = '#FF4757';
+        setTimeout(() => {
+          copyButton.textContent = copyText ? 'Скопировать PIN коды' : 'Закрыть';
+          copyButton.style.background = '#88FB47';
+        }, 2000);
+      }
+    };
+    
+    const closeButton = document.createElement('button');
+    closeButton.style.cssText = `
+      background: transparent;
+      color: #88FB47;
+      border: 1px solid #88FB47;
       border-radius: 8px;
       padding: 12px 24px;
       font-size: 16px;
@@ -285,20 +342,53 @@ const ProfilePage: React.FC = () => {
     
     content.appendChild(message);
     content.appendChild(textElement);
+    content.appendChild(copyButton);
     content.appendChild(closeButton);
     modal.appendChild(content);
     document.body.appendChild(modal);
     
-    // Автоматически выделяем текст на мобильных устройствах
-    setTimeout(() => {
-      const range = document.createRange();
-      range.selectNodeContents(textElement);
-      const selection = window.getSelection();
-      if (selection) {
-        selection.removeAllRanges();
-        selection.addRange(range);
-      }
-    }, 100);
+    // Автоматически пытаемся скопировать только PIN коды
+    if (copyText) {
+      setTimeout(async () => {
+        try {
+          await copyToClipboard(copyText);
+          
+          // Показываем уведомление об успешном копировании
+          const successMsg = document.createElement('div');
+          successMsg.style.cssText = `
+            position: fixed;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: #27C151;
+            color: white;
+            padding: 10px 20px;
+            border-radius: 8px;
+            z-index: 10001;
+            font-family: system-ui;
+            font-weight: bold;
+          `;
+          successMsg.textContent = '✅ PIN коды скопированы!';
+          document.body.appendChild(successMsg);
+          
+          setTimeout(() => {
+            if (document.body.contains(successMsg)) {
+              document.body.removeChild(successMsg);
+            }
+          }, 3000);
+          
+        } catch (error) {
+          // Если автоматическое копирование не удалось, просто выделяем текст
+          const range = document.createRange();
+          range.selectNodeContents(textElement);
+          const selection = window.getSelection();
+          if (selection) {
+            selection.removeAllRanges();
+            selection.addRange(range);
+          }
+        }
+      }, 300);
+    }
   };
 
   // Функция для получения информации о заказе из нашей базы данных
@@ -314,7 +404,34 @@ const ProfilePage: React.FC = () => {
   };
 
   // Функция для форматирования текста для копирования
-  const formatOrderInfoForCopy = async (orderInfo: any, purchase: any): Promise<string> => {
+  const formatOrderInfoForCopy = async (orderInfo: any): Promise<string> => {
+    const lines = [
+      // `🛒 Детали покупки`,
+      // `📦 Товар: ${purchase.service_name}`,
+      // `💰 Сумма: ${rubAmount} руб.`,
+      // `📅 Дата: ${new Date(purchase.purchase_date).toLocaleDateString('ru-RU')}`,
+      // `🆔 ID заказа: ${purchase.custom_id}`,
+      // `📊 Статус: ${purchase.status === 'completed' ? 'Завершено' : purchase.status === 'pending' ? 'В обработке' : 'Ошибка'}`,
+    ];
+
+    // Добавляем PIN коды если есть
+    if (orderInfo.pins && orderInfo.pins.length > 0) {
+      // lines.push(`🔑 PIN коды:`);
+      orderInfo.pins.forEach((pin: string) => {
+        lines.push(`${pin}`);
+      });
+    }
+
+    // Добавляем данные если есть
+    if (orderInfo.data) {
+      lines.push(`📝 Данные: ${orderInfo.data}`);
+    }
+
+    return lines.join('\n');
+  };
+
+  // Функция для ручного копирования текста
+  const formatOrderInfoForManualCopy = async (orderInfo: any, purchase: any): Promise<string> => {
     const rubAmount = await convertToRub(purchase.amount, purchase.currency);
     const lines = [
       `🛒 Детали покупки`,
@@ -366,7 +483,8 @@ const ProfilePage: React.FC = () => {
         rubAmount,
         orderId,
         `Пополнение баланса на ${rubAmount} ₽`,
-        user.id
+        user.id,
+        0 // payer_pays_commission: 1 - плательщик оплачивает комиссию
       );
 
       if (paymentResult.success && paymentResult.link_page_url && paymentResult.bill_id) {
@@ -404,10 +522,32 @@ const ProfilePage: React.FC = () => {
     }
   };
 
+  // Функция для остановки проверки статуса платежа
+  const stopPaymentStatusCheck = () => {
+    if (paymentCheckIntervalRef.current) {
+      clearInterval(paymentCheckIntervalRef.current);
+      paymentCheckIntervalRef.current = null;
+    }
+    setProcessingCardLink(false);
+    setPaymentStatus('');
+  };
+
+  // Функция для закрытия модального окна с очисткой состояния
+  const handleCloseModal = () => {
+    stopPaymentStatusCheck();
+    setIsAddingBalance(false);
+    setAddAmount('');
+    setPaymentStatus('');
+    setProcessingCardLink(false);
+  };
+
   // Упрощенная функция для проверки статуса платежа
   const startPaymentStatusCheck = (billId: string, amount: number, rubAmount: number) => {
+    // Останавливаем предыдущую проверку, если она была
+    stopPaymentStatusCheck();
+    
     let checkCount = 0;
-    const maxChecks = 120; // 10 минут (120 * 5 секунд)
+    const maxChecks = 4320; // 6 часов (4320 * 5 секунд)
     
     const checkInterval = setInterval(async () => {
       try {
@@ -419,8 +559,7 @@ const ProfilePage: React.FC = () => {
         if (status.success) {
           if (status.is_paid) {
             // Платеж успешен
-            clearInterval(checkInterval);
-            setProcessingCardLink(false);
+            stopPaymentStatusCheck();
             setPaymentStatus('Платеж успешно завершен!');
             
             // Обновляем баланс
@@ -435,17 +574,14 @@ const ProfilePage: React.FC = () => {
               
               // Закрываем модалку и показываем уведомление
               setTimeout(() => {
-                setIsAddingBalance(false);
-                setAddAmount('');
-                setPaymentStatus('');
+                handleCloseModal();
                 alert(`Баланс успешно пополнен на ${rubAmount} ₽`);
               }, 1000);
             }
             
           } else if (status.is_failed) {
             // Платеж не прошел
-            clearInterval(checkInterval);
-            setProcessingCardLink(false);
+            stopPaymentStatusCheck();
             setPaymentStatus('Платеж не прошел');
             
             setTimeout(() => {
@@ -457,8 +593,7 @@ const ProfilePage: React.FC = () => {
         
         // Останавливаем проверку после максимального количества попыток
         if (checkCount >= maxChecks) {
-          clearInterval(checkInterval);
-          setProcessingCardLink(false);
+          stopPaymentStatusCheck();
           setPaymentStatus('Время проверки истекло');
           
           setTimeout(() => {
@@ -470,7 +605,17 @@ const ProfilePage: React.FC = () => {
         console.error('Error checking payment status:', error);
       }
     }, 5000); // Проверяем каждые 5 секунд
+    
+    // Сохраняем ссылку на интервал
+    paymentCheckIntervalRef.current = checkInterval;
   };
+
+  // Очистка интервала при размонтировании компонента
+  useEffect(() => {
+    return () => {
+      stopPaymentStatusCheck();
+    };
+  }, []);
 
   // Обновленная функция handleAddBalance
   const handleAddBalance = async () => {
@@ -509,6 +654,48 @@ const ProfilePage: React.FC = () => {
     }
   };
 
+  // Функция для активации промокода
+  const handleActivatePromocode = async () => {
+    if (!promocodeInput.trim() || !user) {
+      setPromocodeMessage({ type: 'error', text: 'Введите промокод' });
+      return;
+    }
+
+    setActivatingPromocode(true);
+    setPromocodeMessage(null);
+
+    try {
+      const result = await promocodeService.activatePromocode(
+        promocodeInput.trim().toUpperCase(),
+        user.id
+      );
+
+      if (result.success) {
+        setPromocodeMessage({ type: 'success', text: result.message });
+        setPromocodeInput('');
+        
+        // Обновляем баланс если это промокод на пополнение
+        if (result.type === 'balance' && result.new_balance !== undefined) {
+          updateBalance(result.new_balance);
+          refreshUser();
+        }
+        
+        // Очищаем сообщение через 5 секунд
+        setTimeout(() => {
+          setPromocodeMessage(null);
+        }, 5000);
+      } else {
+        setPromocodeMessage({ type: 'error', text: result.message });
+      }
+    } catch (error: any) {
+      setPromocodeMessage({
+        type: 'error',
+        text: error.message || 'Ошибка при активации промокода',
+      });
+    } finally {
+      setActivatingPromocode(false);
+    }
+  };
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -638,13 +825,48 @@ const ProfilePage: React.FC = () => {
         </BalanceStats>
       </BalanceCard>
 
+      {/* Promocode Section */}
+      <PromocodeCard>
+        <PromocodeHeader>
+          <PromocodeTitle>Промокод</PromocodeTitle>
+        </PromocodeHeader>
+        <PromocodeInputContainer>
+          <PromocodeInput
+            type="text"
+            placeholder="Введите промокод"
+            value={promocodeInput}
+            onChange={(e) => {
+              setPromocodeInput(e.target.value.toUpperCase());
+              setPromocodeMessage(null);
+            }}
+            onKeyPress={(e) => {
+              if (e.key === 'Enter' && !activatingPromocode) {
+                handleActivatePromocode();
+              }
+            }}
+            disabled={activatingPromocode}
+          />
+          <PromocodeButton
+            onClick={handleActivatePromocode}
+            disabled={activatingPromocode || !promocodeInput.trim()}
+          >
+            {activatingPromocode ? 'Активация...' : 'Активировать'}
+          </PromocodeButton>
+        </PromocodeInputContainer>
+        {promocodeMessage && (
+          <PromocodeMessage $type={promocodeMessage.type}>
+            {promocodeMessage.type === 'success' ? '✅' : '❌'} {promocodeMessage.text}
+          </PromocodeMessage>
+        )}
+      </PromocodeCard>
+
       {/* Add Balance Modal */}
       {isAddingBalance && (
-        <ModalOverlay onClick={() => setIsAddingBalance(false)}>
+        <ModalOverlay onClick={handleCloseModal}>
           <ModalContent onClick={(e) => e.stopPropagation()}>
             <ModalHeader>
               <ModalTitle>Пополнение баланса</ModalTitle>
-              <CloseButton onClick={() => setIsAddingBalance(false)}>×</CloseButton>
+              <CloseButton onClick={handleCloseModal}>×</CloseButton>
             </ModalHeader>
             
             <ModalBody>
@@ -735,7 +957,7 @@ const ProfilePage: React.FC = () => {
             </ModalBody>
             
             <ModalFooter>
-              <CancelButton onClick={() => setIsAddingBalance(false)}>
+              <CancelButton onClick={handleCloseModal}>
                 Отмена
               </CancelButton>
               <ConfirmButton 
@@ -927,6 +1149,108 @@ const UserJoinDate = styled.p`
   font-family: "ChakraPetch-Regular";
   font-size: 14px;
   margin: 0;
+`;
+
+const PromocodeCard = styled.div`
+  background: linear-gradient(135deg, rgba(26, 26, 46, 0.9) 0%, rgba(30, 30, 50, 0.9) 100%);
+  border: 1px solid rgba(136, 251, 71, 0.3);
+  border-radius: 20px;
+  padding: 24px;
+  margin-bottom: 24px;
+  backdrop-filter: blur(10px);
+`;
+
+const PromocodeHeader = styled.div`
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+`;
+
+const PromocodeTitle = styled.h2`
+  color: #fff;
+  font-family: "ChakraPetch-Regular";
+  font-size: 20px;
+  font-weight: 600;
+  margin: 0;
+`;
+
+const PromocodeInputContainer = styled.div`
+  display: flex;
+  gap: 12px;
+  margin-bottom: 12px;
+  width: 100%;
+  box-sizing: border-box;
+`;
+
+const PromocodeInput = styled.input`
+  flex: 1;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(136, 251, 71, 0.3);
+  border-radius: 12px;
+  padding: 14px 18px;
+  color: #fff;
+  font-family: "ChakraPetch-Regular";
+  font-size: 16px;
+  transition: all 0.3s ease;
+  box-sizing: border-box;
+  min-width: 0;
+
+  &::placeholder {
+    color: rgba(255, 255, 255, 0.4);
+  }
+
+  &:focus {
+    outline: none;
+    border-color: #88FB47;
+    background: rgba(255, 255, 255, 0.08);
+  }
+
+  &:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+`;
+
+const PromocodeButton = styled.button`
+  background: linear-gradient(135deg, #88FB47 0%, #27C151 100%);
+  border: none;
+  border-radius: 12px;
+  padding: 14px 28px;
+  color: #1a1a2e;
+  font-family: "ChakraPetch-Regular";
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  white-space: nowrap;
+  box-sizing: border-box;
+  flex-shrink: 0;
+
+  &:hover:not(:disabled) {
+    transform: translateY(-2px);
+    box-shadow: 0 10px 25px rgba(136, 251, 71, 0.3);
+  }
+
+  &:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+`;
+
+const PromocodeMessage = styled.div<{ $type: 'success' | 'error' }>`
+  padding: 12px 16px;
+  border-radius: 10px;
+  font-family: "ChakraPetch-Regular";
+  font-size: 14px;
+  background: ${props => props.$type === 'success' 
+    ? 'rgba(39, 193, 81, 0.2)' 
+    : 'rgba(255, 71, 87, 0.2)'};
+  border: 1px solid ${props => props.$type === 'success' 
+    ? 'rgba(39, 193, 81, 0.5)' 
+    : 'rgba(255, 71, 87, 0.5)'};
+  color: ${props => props.$type === 'success' ? '#27C151' : '#FF4757'};
+  margin-top: 8px;
 `;
 
 const BalanceCard = styled.div`

@@ -6,6 +6,7 @@ export interface CardLinkCreatePaymentRequest {
   user_id: number;
   success_url?: string;
   fail_url?: string;
+  payer_pays_commission?: 0 | 1; // 0 или 1 - кто оплачивает комиссию за входящий платёж
 }
 
 export interface CardLinkCreatePaymentResponse {

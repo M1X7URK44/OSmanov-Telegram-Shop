@@ -6,7 +6,8 @@
     "dev": "nodemon src/index.ts",
     "start": "node dist/index.js",
     "build": "tsc",
-    "db:init": "psql -h postgres -U postgres -d gifts_app -f database/schema.sql"
+    "db:init": "psql -h postgres -U postgres -d gifts_app -f database/schema.sql",
+    "db:migrate:promocodes": "docker cp database/migration_add_promocodes.sql osmanov-telegram-shop-postgres-1:/tmp/migration.sql && docker exec osmanov-telegram-shop-postgres-1 psql -U postgres -d gifts_app -f /tmp/migration.sql"
   },
   "keywords": [],
   "author": "",
@@ -15,10 +16,11 @@
   "dependencies": {
     "@types/jsonwebtoken": "^9.0.10",
     "axios": "^1.13.2",
+    "bcryptjs": "^3.0.3",
     "cors": "^2.8.5",
     "dotenv": "^17.2.3",
     "express": "^5.1.0",
-    "jsonwebtoken": "^9.0.2",
+    "jsonwebtoken": "^9.0.3",
     "morgan": "^1.10.1",
     "pg": "^8.16.3",
     "qs": "^6.14.0",

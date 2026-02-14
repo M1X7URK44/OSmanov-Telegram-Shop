@@ -26,7 +26,8 @@ class CardLinkService {
     amount: number,
     orderId: string,
     description: string,
-    userId: number
+    userId: number,
+    payerPaysCommission?: 0 | 1
   ): Promise<CardLinkPaymentResponse> {
     try {
       const response = await fetch(`${API_BASE_URL}/cardlink/create-payment`, {
@@ -39,6 +40,7 @@ class CardLinkService {
           order_id: orderId,
           description,
           user_id: userId,
+          payer_pays_commission: payerPaysCommission !== undefined ? payerPaysCommission : 1,
         }),
       });
 

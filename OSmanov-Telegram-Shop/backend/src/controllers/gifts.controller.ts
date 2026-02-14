@@ -289,7 +289,20 @@ export class GiftsController {
 
       // Проверяем баланс пользователя
       const userBalance = await userService.getUserBalance(parseInt(user_id));
-      const totalAmount = items.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+      
+      // Проверяем активный промокод на скидку
+      const { promocodeService } = await import('../services/promocode.service');
+      const discountPromocode = await promocodeService.getActiveDiscountPromocode(parseInt(user_id));
+      
+      // Рассчитываем общую сумму
+      let totalAmount = items.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+      let discountAmount = 0;
+      
+      // Применяем скидку если есть активный промокод
+      if (discountPromocode && discountPromocode.value > 0) {
+        discountAmount = totalAmount * (discountPromocode.value / 100);
+        totalAmount = totalAmount - discountAmount;
+      }
 
       if (userBalance < totalAmount) {
         res.status(400).json({
@@ -384,13 +397,31 @@ export class GiftsController {
         }
       }
 
+      // Если был применен промокод на скидку и хотя бы одна покупка успешна - деактивируем промокод
+      const successfulItems = results.filter(item => item.success);
+      if (discountPromocode && successfulItems.length > 0) {
+        try {
+          await promocodeService.deactivateDiscountPromocodeForUser(
+            parseInt(user_id),
+            discountPromocode.id
+          );
+          console.log(`🎫 Discount promocode ${discountPromocode.code} deactivated after successful purchase`);
+        } catch (error) {
+          console.error('Error deactivating discount promocode:', error);
+          // Не прерываем выполнение, если не удалось деактивировать промокод
+        }
+      }
+
       res.json({
         status: 'success',
         data: {
           results,
           total_processed: results.filter(r => r.success).length,
           total_failed: failedItems.length,
-          total_amount: totalAmount
+          total_amount: totalAmount,
+          original_amount: items.reduce((sum, item) => sum + (item.price * item.quantity), 0),
+          discount_amount: discountAmount,
+          discount_percent: discountPromocode ? discountPromocode.value : 0
         }
       });
 
