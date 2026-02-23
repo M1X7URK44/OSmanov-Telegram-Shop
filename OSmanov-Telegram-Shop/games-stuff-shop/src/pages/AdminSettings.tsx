@@ -7,6 +7,11 @@ interface AdminSettingsData {
   usd_to_rub_rate: number;
   min_deposit_amount: number;
   max_deposit_amount: number;
+  telegram_star_price_rub?: number;
+  telegram_premium_price_rub?: number;
+  telegram_premium_3m_price_rub?: number;
+  telegram_premium_6m_price_rub?: number;
+  telegram_premium_12m_price_rub?: number;
   updated_at: string;
   updated_by: number;
 }
@@ -16,6 +21,10 @@ const AdminSettingsPage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [exchangeRate, setExchangeRate] = useState('');
+  const [starPrice, setStarPrice] = useState('');
+  const [premium3mPrice, setPremium3mPrice] = useState('');
+  const [premium6mPrice, setPremium6mPrice] = useState('');
+  const [premium12mPrice, setPremium12mPrice] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
   const [error, setError] = useState('');
 
@@ -29,6 +38,10 @@ const AdminSettingsPage: React.FC = () => {
       const data = await adminService.getSettings();
       setSettings(data);
       setExchangeRate(data.usd_to_rub_rate.toString());
+      setStarPrice((data.telegram_star_price_rub ?? 1.0).toString());
+      setPremium3mPrice((data.telegram_premium_3m_price_rub ?? (data.telegram_premium_price_rub ?? 399.0) * 3).toString());
+      setPremium6mPrice((data.telegram_premium_6m_price_rub ?? (data.telegram_premium_price_rub ?? 399.0) * 6).toString());
+      setPremium12mPrice((data.telegram_premium_12m_price_rub ?? (data.telegram_premium_price_rub ?? 399.0) * 12).toString());
     } catch (err) {
       setError('Не удалось загрузить настройки');
     } finally {
@@ -38,9 +51,33 @@ const AdminSettingsPage: React.FC = () => {
 
   const handleSave = async () => {
     const rate = parseFloat(exchangeRate);
+    const star = parseFloat(starPrice);
+    const premium3m = parseFloat(premium3mPrice);
+    const premium6m = parseFloat(premium6mPrice);
+    const premium12m = parseFloat(premium12mPrice);
     
     if (!rate || rate <= 0 || rate > 1000) {
       setError('Введите корректный курс (0-1000)');
+      return;
+    }
+
+    if (!star || star <= 0) {
+      setError('Введите корректную цену за 1 звезду');
+      return;
+    }
+
+    if (!premium3m || premium3m <= 0) {
+      setError('Введите корректную цену за 3 месяца премиума');
+      return;
+    }
+
+    if (!premium6m || premium6m <= 0) {
+      setError('Введите корректную цену за 6 месяцев премиума');
+      return;
+    }
+
+    if (!premium12m || premium12m <= 0) {
+      setError('Введите корректную цену за 12 месяцев премиума');
       return;
     }
 
@@ -49,26 +86,22 @@ const AdminSettingsPage: React.FC = () => {
       setError('');
       
       await adminService.updateExchangeRate(rate);
+      const currentPremiumPrice = settings?.telegram_premium_price_rub ?? 399.0;
+      await adminService.updateTelegramPrices(star, currentPremiumPrice);
+      await adminService.updatePremiumPrices(premium3m, premium6m, premium12m);
       
-      // Обновляем курс в CurrencyService
       currencyService.setAdminRate(rate);
       
-      setSuccessMessage('Курс успешно обновлен!');
+      setSuccessMessage('Все настройки успешно сохранены!');
       
-      // Обновляем настройки
       await loadSettings();
       
-      // Скрываем сообщение об успехе через 3 секунды
       setTimeout(() => setSuccessMessage(''), 3000);
     } catch (err) {
-      setError('Не удалось обновить курс');
+      setError('Не удалось сохранить настройки');
     } finally {
       setSaving(false);
     }
-  };
-
-  const handleResetToDefault = () => {
-    setExchangeRate('90');
   };
 
   if (loading) {
@@ -132,20 +165,79 @@ const AdminSettingsPage: React.FC = () => {
             </InputHint>
           </FormGroup>
 
-          <QuickRates>
-            <QuickRateButton onClick={() => setExchangeRate('90')}>
-              90 ₽
-            </QuickRateButton>
-            <QuickRateButton onClick={() => setExchangeRate('95')}>
-              95 ₽
-            </QuickRateButton>
-            <QuickRateButton onClick={() => setExchangeRate('100')}>
-              100 ₽
-            </QuickRateButton>
-            <QuickRateButton onClick={handleResetToDefault}>
-              По умолчанию
-            </QuickRateButton>
-          </QuickRates>
+          <FormGroup>
+            <InputLabel>Telegram Stars и Premium</InputLabel>
+            <InputDescription>
+              Укажите базовые цены в рублях для расчета списаний с баланса пользователя
+            </InputDescription>
+
+            <RateInputContainer>
+              <RateInput
+                type="number"
+                value={starPrice}
+                onChange={(e) => setStarPrice(e.target.value)}
+                placeholder="Цена за 1 звезду"
+                min="0.01"
+                step="0.01"
+              />
+              <CurrencyLabel>₽ за 1 ⭐</CurrencyLabel>
+            </RateInputContainer>
+            <InputHint>
+              Текущая цена Stars: <strong>{settings?.telegram_star_price_rub ?? 1.0} ₽</strong> за 1 ⭐
+            </InputHint>
+          </FormGroup>
+
+          <FormGroup>
+            <InputLabel>Telegram Premium (отдельные цены)</InputLabel>
+            <InputDescription>
+              Укажите отдельные цены для 3, 6 и 12 месяцев премиума
+            </InputDescription>
+
+            <RateInputContainer>
+              <RateInput
+                type="number"
+                value={premium3mPrice}
+                onChange={(e) => setPremium3mPrice(e.target.value)}
+                placeholder="Цена за 3 месяца"
+                min="1"
+                step="1"
+              />
+              <CurrencyLabel>₽ за 3 месяца 💎</CurrencyLabel>
+            </RateInputContainer>
+            <InputHint>
+              Текущая цена: <strong>{settings?.telegram_premium_3m_price_rub ?? ((settings?.telegram_premium_price_rub ?? 399.0) * 3)} ₽</strong> за 3 месяца
+            </InputHint>
+
+            <RateInputContainer style={{ marginTop: 12 }}>
+              <RateInput
+                type="number"
+                value={premium6mPrice}
+                onChange={(e) => setPremium6mPrice(e.target.value)}
+                placeholder="Цена за 6 месяцев"
+                min="1"
+                step="1"
+              />
+              <CurrencyLabel>₽ за 6 месяцев 💎</CurrencyLabel>
+            </RateInputContainer>
+            <InputHint>
+              Текущая цена: <strong>{settings?.telegram_premium_6m_price_rub ?? ((settings?.telegram_premium_price_rub ?? 399.0) * 6)} ₽</strong> за 6 месяцев
+            </InputHint>
+
+            <RateInputContainer style={{ marginTop: 12 }}>
+              <RateInput
+                type="number"
+                value={premium12mPrice}
+                onChange={(e) => setPremium12mPrice(e.target.value)}
+                placeholder="Цена за 12 месяцев"
+                min="1"
+                step="1"
+              />
+              <CurrencyLabel>₽ за 1 год 💎</CurrencyLabel>
+            </RateInputContainer>
+            <InputHint>
+              Текущая цена: <strong>{settings?.telegram_premium_12m_price_rub ?? ((settings?.telegram_premium_price_rub ?? 399.0) * 12)} ₽</strong> за 1 год
+            </InputHint>
+          </FormGroup>
 
           <ActionButtons>
             <SaveButton onClick={handleSave} disabled={saving}>
@@ -155,7 +247,7 @@ const AdminSettingsPage: React.FC = () => {
                   Сохранение...
                 </>
               ) : (
-                'Сохранить курс'
+                'Сохранить'
               )}
             </SaveButton>
             <RefreshButton onClick={loadSettings} disabled={saving}>
@@ -327,30 +419,6 @@ const InputHint = styled.div`
   font-family: "ChakraPetch-Regular";
   font-size: 12px;
   margin-top: 8px;
-`;
-
-const QuickRates = styled.div`
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-  margin-bottom: 25px;
-`;
-
-const QuickRateButton = styled.button`
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 8px;
-  padding: 10px 16px;
-  color: #fff;
-  font-family: "ChakraPetch-Regular";
-  font-size: 14px;
-  cursor: pointer;
-  transition: all 0.3s ease;
-
-  &:hover {
-    background: rgba(136, 251, 71, 0.1);
-    border-color: #88FB47;
-  }
 `;
 
 const ActionButtons = styled.div`

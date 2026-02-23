@@ -54,7 +54,9 @@ export class AdminController {
         data: settings || {
           usd_to_rub_rate: 90, // Значение по умолчанию
           min_deposit_amount: 100,
-          max_deposit_amount: 100000
+          max_deposit_amount: 100000,
+          telegram_star_price_rub: 1.0,
+          telegram_premium_price_rub: 399.0
         }
       });
     } catch (error) {
@@ -172,11 +174,16 @@ export class AdminController {
     try {
       const settings = await adminService.getSettings();
 
-      // Возвращаем только курс для публичного доступа
+      // Возвращаем курс и публичные цены для Telegram продуктов
       res.json({
         status: 'success',
         data: {
           usd_to_rub_rate: settings?.usd_to_rub_rate || 90,
+          telegram_star_price_rub: settings?.telegram_star_price_rub || 1.0,
+          telegram_premium_price_rub: settings?.telegram_premium_price_rub || 399.0,
+          telegram_premium_3m_price_rub: settings?.telegram_premium_3m_price_rub || null,
+          telegram_premium_6m_price_rub: settings?.telegram_premium_6m_price_rub || null,
+          telegram_premium_12m_price_rub: settings?.telegram_premium_12m_price_rub || null,
           updated_at: settings?.updated_at || new Date().toISOString()
         }
       });
@@ -188,8 +195,123 @@ export class AdminController {
         status: 'success',
         data: {
           usd_to_rub_rate: 90,
+          telegram_star_price_rub: 1.0,
+          telegram_premium_price_rub: 399.0,
+          telegram_premium_3m_price_rub: null,
+          telegram_premium_6m_price_rub: null,
+          telegram_premium_12m_price_rub: null,
           updated_at: new Date().toISOString()
         }
+      });
+    }
+  }
+
+  async updateTelegramPrices(req: AdminAuthRequest, res: Response): Promise<void> {
+    try {
+      if (!req.user || !req.user.adminId) {
+        res.status(401).json({
+          status: 'error',
+          message: 'Admin not authenticated'
+        });
+        return;
+      }
+
+      const { telegram_star_price_rub, telegram_premium_price_rub } = req.body;
+
+      const starPrice = parseFloat(telegram_star_price_rub);
+      const premiumPrice = parseFloat(telegram_premium_price_rub);
+
+      if (!starPrice || starPrice <= 0) {
+        res.status(400).json({
+          status: 'error',
+          message: 'Некорректная цена за 1 звезду'
+        });
+        return;
+      }
+
+      if (!premiumPrice || premiumPrice <= 0) {
+        res.status(400).json({
+          status: 'error',
+          message: 'Некорректная цена за 1 месяц премиума'
+        });
+        return;
+      }
+
+      const settings = await adminService.updateTelegramPrices(
+        starPrice,
+        premiumPrice,
+        req.user.adminId
+      );
+
+      res.json({
+        status: 'success',
+        data: settings
+      });
+    } catch (error) {
+      console.error('Error updating Telegram prices:', error);
+      res.status(500).json({
+        status: 'error',
+        message: 'Failed to update Telegram prices'
+      });
+    }
+  }
+
+  async updatePremiumPrices(req: AdminAuthRequest, res: Response): Promise<void> {
+    try {
+      if (!req.user || !req.user.adminId) {
+        res.status(401).json({
+          status: 'error',
+          message: 'Admin not authenticated'
+        });
+        return;
+      }
+
+      const { telegram_premium_3m_price_rub, telegram_premium_6m_price_rub, telegram_premium_12m_price_rub } = req.body;
+
+      const premium3m = parseFloat(telegram_premium_3m_price_rub);
+      const premium6m = parseFloat(telegram_premium_6m_price_rub);
+      const premium12m = parseFloat(telegram_premium_12m_price_rub);
+
+      if (!premium3m || premium3m <= 0) {
+        res.status(400).json({
+          status: 'error',
+          message: 'Некорректная цена за 3 месяца премиума'
+        });
+        return;
+      }
+
+      if (!premium6m || premium6m <= 0) {
+        res.status(400).json({
+          status: 'error',
+          message: 'Некорректная цена за 6 месяцев премиума'
+        });
+        return;
+      }
+
+      if (!premium12m || premium12m <= 0) {
+        res.status(400).json({
+          status: 'error',
+          message: 'Некорректная цена за 12 месяцев премиума'
+        });
+        return;
+      }
+
+      const settings = await adminService.updatePremiumPrices(
+        premium3m,
+        premium6m,
+        premium12m,
+        req.user.adminId
+      );
+
+      res.json({
+        status: 'success',
+        data: settings
+      });
+    } catch (error) {
+      console.error('Error updating Premium prices:', error);
+      res.status(500).json({
+        status: 'error',
+        message: 'Failed to update Premium prices'
       });
     }
   }
@@ -364,6 +486,71 @@ export class AdminController {
       res.status(500).json({
         status: 'error',
         message: 'Failed to fetch user purchases'
+      });
+    }
+  }
+
+  async getPaymentsByDateRange(req: AdminAuthRequest, res: Response): Promise<void> {
+    try {
+      if (!req.user || !req.user.adminId) {
+        res.status(401).json({
+          status: 'error',
+          message: 'Admin not authenticated'
+        });
+        return;
+      }
+
+      const { startDate, endDate } = req.query;
+      const page = parseInt(req.query.page as string) || 1;
+      const limit = parseInt(req.query.limit as string) || 50;
+
+      if (!startDate || !endDate) {
+        res.status(400).json({
+          status: 'error',
+          message: 'Start date and end date are required'
+        });
+        return;
+      }
+
+      // Валидация дат
+      const start = new Date(startDate as string);
+      const end = new Date(endDate as string);
+
+      if (isNaN(start.getTime()) || isNaN(end.getTime())) {
+        res.status(400).json({
+          status: 'error',
+          message: 'Invalid date format'
+        });
+        return;
+      }
+
+      if (start > end) {
+        res.status(400).json({
+          status: 'error',
+          message: 'Start date must be before end date'
+        });
+        return;
+      }
+
+      // Устанавливаем время для endDate на конец дня
+      end.setHours(23, 59, 59, 999);
+
+      const result = await adminService.getPaymentsByDateRange(
+        start.toISOString(),
+        end.toISOString(),
+        page,
+        limit
+      );
+
+      res.json({
+        status: 'success',
+        data: result
+      });
+    } catch (error) {
+      console.error('Error fetching payments by date range:', error);
+      res.status(500).json({
+        status: 'error',
+        message: 'Failed to fetch payments'
       });
     }
   }

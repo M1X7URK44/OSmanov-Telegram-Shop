@@ -6,7 +6,7 @@ export class UserService {
   async getUserById(userId: number): Promise<any> {
     try {
       const result = await query(
-        'SELECT id, telegram_id, username, email, first_name, last_name, photo_url, balance, total_spent, join_date, created_at, updated_at FROM users WHERE id = $1',
+        'SELECT id, telegram_id, username, email, first_name, last_name, photo_url, phone, auth_type, balance, total_spent, join_date, created_at, updated_at FROM users WHERE id = $1',
         [userId]
       );
       
@@ -259,31 +259,53 @@ export class UserService {
     status: 'pending' | 'completed' | 'failed';
     pins?: string[];
     data?: string;
+    currency?: string; // Добавляем опциональный параметр валюты
+    original_usd_amount?: number; // Исходная сумма в USD для Steam TopUp
   }): Promise<void> {
     const client = await getClient();
     
     try {
       await client.query('BEGIN');
 
+      // Определяем валюту: для Steam TopUp (service_id=1) используем RUB, иначе USD
+      const currency = purchaseData.currency || (purchaseData.service_id === 1 ? 'RUB' : 'USD');
+      
       // Сохраняем основную информацию о покупке
+      console.log(`💾 Saving purchase to DB:`, {
+        custom_id: purchaseData.custom_id,
+        service_id: purchaseData.service_id,
+        total_price: purchaseData.total_price,
+        currency: currency,
+        quantity: purchaseData.quantity,
+        original_usd_amount: purchaseData.original_usd_amount
+      });
+      
       const purchaseResult = await client.query(
-        `INSERT INTO purchases (user_id, service_id, service_name, amount, currency, status, purchase_date, custom_id) 
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8) 
+        `INSERT INTO purchases (user_id, service_id, service_name, amount, currency, status, purchase_date, custom_id, total_price) 
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) 
          RETURNING *`,
         [
           purchaseData.user_id,
           purchaseData.service_id,
           purchaseData.service_name,
           purchaseData.total_price,
-          'USD',
+          currency,
           purchaseData.status,
           new Date().toISOString(),
-          purchaseData.custom_id
+          purchaseData.custom_id,
+          purchaseData.total_price
         ]
       );
+      
+      console.log(`✅ Purchase saved:`, {
+        id: purchaseResult.rows[0].id,
+        amount: purchaseResult.rows[0].amount,
+        total_price: purchaseResult.rows[0].total_price,
+        currency: purchaseResult.rows[0].currency
+      });
 
       // Сохраняем детали заказа в транзакции
-      const paymentDetails = {
+      const paymentDetails: any = {
         custom_id: purchaseData.custom_id,
         quantity: purchaseData.quantity,
         pins: purchaseData.pins || null,
@@ -291,6 +313,11 @@ export class UserService {
         service_id: purchaseData.service_id,
         service_name: purchaseData.service_name
       };
+      
+      // Для Steam TopUp сохраняем исходную сумму в USD
+      if (purchaseData.service_id === 1 && purchaseData.original_usd_amount) {
+        paymentDetails.original_usd_amount = purchaseData.original_usd_amount;
+      }
 
       await client.query(
         `INSERT INTO transactions (user_id, amount, type, status, payment_method, payment_details) 
@@ -352,13 +379,17 @@ export class UserService {
 
       const transaction = transactionResult.rows[0];
       
-      // Обновляем статус покупки
+      // Обновляем статус покупки (используем подзапрос для ORDER BY и LIMIT)
       await client.query(
         `UPDATE purchases 
          SET status = $1 
-         WHERE user_id = $2 AND amount = $3
-         ORDER BY created_at DESC 
-         LIMIT 1`,
+         WHERE id = (
+           SELECT id 
+           FROM purchases 
+           WHERE user_id = $2 AND amount = $3
+           ORDER BY created_at DESC 
+           LIMIT 1
+         )`,
         [status, transaction.user_id, transaction.amount]
       );
 
@@ -468,14 +499,36 @@ export class UserService {
   async getPurchaseByCustomId(custom_id: string): Promise<any> {
     try {
       const result = await query(
-        `SELECT p.*, t.payment_details->>'pins' as pins, t.payment_details->>'data' as user_data
+        `SELECT p.*, 
+                t.payment_details->>'pins' as pins, 
+                t.payment_details->>'data' as user_data,
+                t.payment_details->>'original_usd_amount' as original_usd_amount
         FROM purchases p
         LEFT JOIN transactions t ON t.payment_details->>'custom_id' = p.custom_id
         WHERE p.custom_id = $1`,
         [custom_id]
       );
       
-      return result.rows[0] || null;
+      if (result.rows.length > 0) {
+        const purchase = result.rows[0];
+        console.log(`📦 Purchase found by custom_id ${custom_id}:`, {
+          id: purchase.id,
+          service_id: purchase.service_id,
+          amount: purchase.amount,
+          total_price: purchase.total_price,
+          currency: purchase.currency,
+          quantity: purchase.quantity,
+          original_usd_amount: purchase.original_usd_amount,
+          raw_total_price: purchase.total_price,
+          raw_amount: purchase.amount,
+          total_price_type: typeof purchase.total_price,
+          amount_type: typeof purchase.amount
+        });
+        return purchase;
+      }
+      
+      console.log(`⚠️ Purchase not found by custom_id: ${custom_id}`);
+      return null;
     } catch (error) {
       console.error('Error fetching purchase by custom_id:', error);
       throw error;
@@ -485,7 +538,7 @@ export class UserService {
   async getUserByTelegramId(telegramId: number): Promise<User | null> {
     try {
       const result = await query(
-        'SELECT id, telegram_id, username, email, first_name, last_name, photo_url, balance, total_spent, join_date, created_at, updated_at FROM users WHERE telegram_id = $1',
+        'SELECT id, telegram_id, username, email, first_name, last_name, photo_url, phone, auth_type, balance, total_spent, join_date, created_at, updated_at FROM users WHERE telegram_id = $1',
         [telegramId]
       );
       
@@ -496,8 +549,22 @@ export class UserService {
     }
   }
 
+  async getUserByPhone(phone: string): Promise<any> {
+    try {
+      const result = await query(
+        'SELECT id, telegram_id, username, email, first_name, last_name, photo_url, phone, auth_type, balance, total_spent, join_date, created_at, updated_at FROM users WHERE phone = $1',
+        [phone]
+      );
+      
+      return result.rows[0] || null;
+    } catch (error) {
+      console.error('Error fetching user by phone:', error);
+      throw error;
+    }
+  }
+
   async createUser(userData: {
-    telegram_id: number;
+    telegram_id?: number;
     username: string;
     email: string;
     first_name?: string;
@@ -505,22 +572,26 @@ export class UserService {
     photo_url?: string;
     balance?: number;
     total_spent?: number;
+    phone?: string;
+    auth_type?: string;
   }): Promise<any> {
     try {
       const result = await query(
         `INSERT INTO users (
-          telegram_id, username, email, first_name, last_name, photo_url, balance, total_spent
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) 
+          telegram_id, username, email, first_name, last_name, photo_url, balance, total_spent, phone, auth_type
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) 
         RETURNING *`,
         [
-          userData.telegram_id,
+          userData.telegram_id ?? null,
           userData.username,
           userData.email,
           userData.first_name,
           userData.last_name,
           userData.photo_url,
           userData.balance || 0.00,
-          userData.total_spent || 0.00
+          userData.total_spent || 0.00,
+          userData.phone ?? null,
+          userData.auth_type || 'telegram'
         ]
       );
 
@@ -528,7 +599,6 @@ export class UserService {
     } catch (error: any) {
       // Если ошибка дублирования username или email, пробуем создать с другим username
       if (error.code === '23505' && error.constraint === 'users_username_key') {
-        // Генерируем уникальный username
         const uniqueUsername = `${userData.username}_${Date.now()}`;
         return this.createUser({
           ...userData,
@@ -536,18 +606,57 @@ export class UserService {
         });
       }
       
-      // Если ошибка дублирования email, пробуем создать с другим email
       if (error.code === '23505' && error.constraint === 'users_email_key') {
-        const uniqueEmail = `tg${userData.telegram_id}_${Date.now()}@telegram.user`;
+        const uniqueEmail = userData.telegram_id 
+          ? `tg${userData.telegram_id}_${Date.now()}@telegram.user`
+          : `user_${Date.now()}@os-gift.store`;
         return this.createUser({
           ...userData,
           email: uniqueEmail
         });
       }
       
+      if (error.code === '23505' && error.constraint === 'users_phone_key') {
+        throw new Error('Пользователь с таким номером уже зарегистрирован');
+      }
+      
       console.error('Error creating user:', error);
       throw error;
     }
+  }
+
+  /**
+   * Создание пользователя для веб-авторизации (телефон или email)
+   */
+  async createWebUser(params: {
+    phone?: string;
+    email?: string;
+    authType: 'phone' | 'email';
+  }): Promise<any> {
+    if (params.authType === 'phone' && params.phone) {
+      const email = `p${params.phone}@os-gift.store`;
+      const username = `user_${params.phone}`;
+      return this.createUser({
+        phone: params.phone,
+        username,
+        email,
+        auth_type: 'phone',
+        balance: 0,
+        total_spent: 0
+      });
+    }
+    if (params.authType === 'email' && params.email) {
+      const email = params.email.toLowerCase();
+      const username = email.split('@')[0] + '_' + Date.now();
+      return this.createUser({
+        username,
+        email,
+        auth_type: 'email',
+        balance: 0,
+        total_spent: 0
+      });
+    }
+    throw new Error('Invalid web user params');
   }
 
   async getAllUsers(page: number = 1, limit: number = 10, search?: string): Promise<{ users: User[], total: number, totalPages: number }> {
@@ -646,6 +755,36 @@ export class UserService {
       throw error;
     } finally {
       client.release();
+    }
+  }
+
+  async getPWAInstructionStatus(userId: number): Promise<boolean> {
+    try {
+      const result = await query(
+        'SELECT pwa_instruction_shown FROM users WHERE id = $1',
+        [userId]
+      );
+      
+      if (result.rows.length === 0) {
+        throw new Error('User not found');
+      }
+      
+      return result.rows[0].pwa_instruction_shown || false;
+    } catch (error) {
+      console.error('Error getting PWA instruction status:', error);
+      throw error;
+    }
+  }
+
+  async setPWAInstructionShown(userId: number): Promise<void> {
+    try {
+      await query(
+        'UPDATE users SET pwa_instruction_shown = TRUE, updated_at = CURRENT_TIMESTAMP WHERE id = $1',
+        [userId]
+      );
+    } catch (error) {
+      console.error('Error setting PWA instruction shown:', error);
+      throw error;
     }
   }
 

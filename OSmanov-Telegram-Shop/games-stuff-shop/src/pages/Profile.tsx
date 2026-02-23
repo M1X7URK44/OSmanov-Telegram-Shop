@@ -25,6 +25,17 @@ const ProfilePage: React.FC = () => {
   
   // Ref для хранения ссылки на интервал проверки статуса платежа
   const paymentCheckIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  
+  // Ref для хранения информации о текущем платеже
+  const activePaymentRef = useRef<{
+    billId: string;
+    amount: number;
+    rubAmount: number;
+    startTime: number;
+  } | null>(null);
+  
+  // BroadcastChannel для синхронизации между вкладками
+  const paymentChannelRef = useRef<BroadcastChannel | null>(null);
 
   const [copyStatus, setCopyStatus] = useState<{ [key: string]: boolean }>({});
   const [loadingOrder, setLoadingOrder] = useState<{ [key: string]: boolean }>({});
@@ -86,15 +97,24 @@ const ProfilePage: React.FC = () => {
       
       for (const purchase of profile.purchases) {
         try {
-          const rubAmount = await convertToRub(
-            Number(purchase.amount.toFixed(2)), 
-            purchase.currency
-          );
-          converted[purchase.id] = Math.ceil(rubAmount);
+          // Если валюта уже RUB, не конвертируем
+          if (purchase.currency === 'RUB') {
+            converted[purchase.id] = Math.ceil(Number(purchase.amount));
+          } else {
+            const rubAmount = await convertToRub(
+              Number(purchase.amount.toFixed(2)), 
+              purchase.currency
+            );
+            converted[purchase.id] = Math.ceil(rubAmount);
+          }
         } catch (err) {
           console.error(`Error converting purchase ${purchase.id}:`, err);
           // Используем примерный курс если конвертация не удалась
-          converted[purchase.id] = purchase.amount * (usdToRubRate || 90);
+          if (purchase.currency === 'RUB') {
+            converted[purchase.id] = Math.ceil(Number(purchase.amount));
+          } else {
+            converted[purchase.id] = purchase.amount * (usdToRubRate || 90);
+          }
         }
       }
       
@@ -432,11 +452,18 @@ const ProfilePage: React.FC = () => {
 
   // Функция для ручного копирования текста
   const formatOrderInfoForManualCopy = async (orderInfo: any, purchase: any): Promise<string> => {
-    const rubAmount = await convertToRub(purchase.amount, purchase.currency);
+    // Если валюта уже RUB, не конвертируем
+    let rubAmount: number;
+    if (purchase.currency === 'RUB') {
+      rubAmount = Number(purchase.amount);
+    } else {
+      rubAmount = await convertToRub(purchase.amount, purchase.currency);
+    }
+    
     const lines = [
       `🛒 Детали покупки`,
       `📦 Товар: ${purchase.service_name}`,
-      `💰 Сумма: ${rubAmount} руб.`,
+      `💰 Сумма: ${Math.ceil(rubAmount)} руб.`,
       `📅 Дата: ${new Date(purchase.purchase_date).toLocaleDateString('ru-RU')}`,
       `🆔 ID заказа: ${purchase.custom_id}`,
       `📊 Статус: ${purchase.status === 'completed' ? 'Завершено' : purchase.status === 'pending' ? 'В обработке' : 'Ошибка'}`,
@@ -529,15 +556,16 @@ const ProfilePage: React.FC = () => {
       paymentCheckIntervalRef.current = null;
     }
     setProcessingCardLink(false);
-    setPaymentStatus('');
+    // Не очищаем paymentStatus здесь, чтобы пользователь видел статус при возврате
   };
 
   // Функция для закрытия модального окна с очисткой состояния
   const handleCloseModal = () => {
-    stopPaymentStatusCheck();
+    // Не останавливаем проверку платежа при закрытии модалки
+    // Проверка должна продолжаться в фоне
     setIsAddingBalance(false);
     setAddAmount('');
-    setPaymentStatus('');
+    // Не очищаем paymentStatus, чтобы пользователь мог видеть статус при возврате
     setProcessingCardLink(false);
   };
 
@@ -546,13 +574,42 @@ const ProfilePage: React.FC = () => {
     // Останавливаем предыдущую проверку, если она была
     stopPaymentStatusCheck();
     
+    // Сохраняем информацию о платеже
+    const paymentData = {
+      billId,
+      amount,
+      rubAmount,
+      startTime: Date.now(),
+    };
+    activePaymentRef.current = paymentData;
+    localStorage.setItem('active_payment', JSON.stringify(paymentData));
+    
     let checkCount = 0;
-    const maxChecks = 4320; // 6 часов (4320 * 5 секунд)
+    const maxChecks = 720; // 60 минут (720 * 5 секунд = 3600 секунд = 60 минут)
+    const maxCheckTime = 60 * 60 * 1000; // 60 минут в миллисекундах
     
     const checkInterval = setInterval(async () => {
       try {
+        // Проверяем, не истекло ли время проверки
+        if (activePaymentRef.current) {
+          const elapsedTime = Date.now() - activePaymentRef.current.startTime;
+          if (elapsedTime >= maxCheckTime) {
+            stopPaymentStatusCheck();
+            clearActivePayment();
+            setPaymentStatus('Время проверки истекло');
+            setTimeout(() => {
+              setPaymentStatus('');
+            }, 3000);
+            return;
+          }
+        }
+        
         checkCount++;
-        setPaymentStatus(`Проверка статуса платежа...`);
+        
+        // Обновляем статус только если страница видима
+        if (document.visibilityState === 'visible') {
+          setPaymentStatus(`Проверка статуса платежа...`);
+        }
         
         const status = await cardLinkService.checkPaymentStatus(billId);
         
@@ -560,7 +617,7 @@ const ProfilePage: React.FC = () => {
           if (status.is_paid) {
             // Платеж успешен
             stopPaymentStatusCheck();
-            setPaymentStatus('Платеж успешно завершен!');
+            clearActivePayment();
             
             // Обновляем баланс
             const balanceUpdate = {
@@ -572,21 +629,40 @@ const ProfilePage: React.FC = () => {
               const response = await userApi.updateBalance(user.id, balanceUpdate);
               updateBalance(response.user.balance);
               
-              // Закрываем модалку и показываем уведомление
-              setTimeout(() => {
-                handleCloseModal();
-                alert(`Баланс успешно пополнен на ${rubAmount} ₽`);
-              }, 1000);
+              // Отправляем сообщение в другие вкладки через BroadcastChannel
+              if (paymentChannelRef.current) {
+                paymentChannelRef.current.postMessage({
+                  type: 'payment-completed',
+                  billId,
+                  amount: rubAmount,
+                });
+              }
+              
+              // Обновляем статус и показываем уведомление
+              if (document.visibilityState === 'visible') {
+                setPaymentStatus('Платеж успешно завершен!');
+                setTimeout(() => {
+                  handleCloseModal();
+                  alert(`Баланс успешно пополнен на ${rubAmount} ₽`);
+                }, 1000);
+              } else {
+                // Если страница не видима, просто обновляем баланс
+                // Пользователь увидит обновленный баланс при возврате
+                refreshUser();
+              }
             }
             
           } else if (status.is_failed) {
             // Платеж не прошел
             stopPaymentStatusCheck();
-            setPaymentStatus('Платеж не прошел');
+            clearActivePayment();
             
-            setTimeout(() => {
-              setPaymentStatus('');
-            }, 3000);
+            if (document.visibilityState === 'visible') {
+              setPaymentStatus('Платеж не прошел');
+              setTimeout(() => {
+                setPaymentStatus('');
+              }, 3000);
+            }
           }
           // Если платеж в обработке - продолжаем проверять
         }
@@ -594,15 +670,19 @@ const ProfilePage: React.FC = () => {
         // Останавливаем проверку после максимального количества попыток
         if (checkCount >= maxChecks) {
           stopPaymentStatusCheck();
-          setPaymentStatus('Время проверки истекло');
+          clearActivePayment();
           
-          setTimeout(() => {
-            setPaymentStatus('');
-          }, 3000);
+          if (document.visibilityState === 'visible') {
+            setPaymentStatus('Время проверки истекло');
+            setTimeout(() => {
+              setPaymentStatus('');
+            }, 3000);
+          }
         }
         
       } catch (error) {
         console.error('Error checking payment status:', error);
+        // Продолжаем проверку даже при ошибке
       }
     }, 5000); // Проверяем каждые 5 секунд
     
@@ -610,9 +690,115 @@ const ProfilePage: React.FC = () => {
     paymentCheckIntervalRef.current = checkInterval;
   };
 
+  // Функция для очистки активного платежа
+  const clearActivePayment = () => {
+    activePaymentRef.current = null;
+    localStorage.removeItem('active_payment');
+  };
+
+  // Инициализация BroadcastChannel для синхронизации между вкладками
+  useEffect(() => {
+    if (typeof BroadcastChannel !== 'undefined') {
+      paymentChannelRef.current = new BroadcastChannel('payment-status-check');
+      
+      paymentChannelRef.current.onmessage = (event) => {
+        if (event.data.type === 'payment-completed' && activePaymentRef.current) {
+          // Если платеж завершен в другой вкладке, останавливаем проверку
+          stopPaymentStatusCheck();
+          if (user) {
+            refreshUser();
+            alert(`Баланс успешно пополнен на ${activePaymentRef.current.rubAmount} ₽`);
+          }
+          clearActivePayment();
+        }
+      };
+      
+      return () => {
+        if (paymentChannelRef.current) {
+          paymentChannelRef.current.close();
+        }
+      };
+    }
+  }, [user, refreshUser]);
+
+  // Проверка активных платежей при загрузке страницы
+  useEffect(() => {
+    const checkActivePayments = async () => {
+      try {
+        const savedPayment = localStorage.getItem('active_payment');
+        if (savedPayment) {
+          const paymentData = JSON.parse(savedPayment);
+          const now = Date.now();
+          const paymentStartTime = paymentData.startTime;
+          const maxCheckTime = 60 * 60 * 1000; // 60 минут в миллисекундах
+          
+          // Проверяем, не истекло ли время проверки (60 минут)
+          if (now - paymentStartTime < maxCheckTime) {
+            // Восстанавливаем проверку платежа
+            activePaymentRef.current = paymentData;
+            startPaymentStatusCheck(
+              paymentData.billId,
+              paymentData.amount,
+              paymentData.rubAmount
+            );
+          } else {
+            // Время истекло, удаляем сохраненный платеж
+            localStorage.removeItem('active_payment');
+          }
+        }
+      } catch (error) {
+        console.error('Error checking active payments:', error);
+      }
+    };
+    
+    checkActivePayments();
+  }, []);
+
+  // Обработка видимости страницы для продолжения проверки
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible' && activePaymentRef.current) {
+        // Если страница стала видимой и есть активный платеж, продолжаем проверку
+        if (!paymentCheckIntervalRef.current) {
+          startPaymentStatusCheck(
+            activePaymentRef.current.billId,
+            activePaymentRef.current.amount,
+            activePaymentRef.current.rubAmount
+          );
+        }
+      }
+    };
+    
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, []);
+
+  // Сохранение состояния платежа перед закрытием страницы
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      if (activePaymentRef.current) {
+        // Сохраняем информацию о платеже в localStorage
+        localStorage.setItem('active_payment', JSON.stringify(activePaymentRef.current));
+      }
+    };
+    
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+    };
+  }, []);
+
   // Очистка интервала при размонтировании компонента
   useEffect(() => {
     return () => {
+      // Сохраняем состояние перед размонтированием
+      if (activePaymentRef.current) {
+        localStorage.setItem('active_payment', JSON.stringify(activePaymentRef.current));
+      }
       stopPaymentStatusCheck();
     };
   }, []);

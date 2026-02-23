@@ -2,98 +2,69 @@ import React, { useState } from 'react';
 import styled, { keyframes } from 'styled-components';
 import { adminService } from '../services/admin.service';
 
-interface AdminUser {
-  id: number;
-  telegram_id?: number;
-  username: string;
-  email: string;
-  first_name?: string;
-  last_name?: string;
-  balance: number | string;
-  total_spent: number | string;
-  join_date: string;
-  created_at: string;
-}
-
-interface UserPurchase {
+interface Payment {
   id: number;
   user_id: number;
-  service_id: number | null;
-  service_name: string;
-  quantity?: number;
+  username: string;
+  telegram_id?: number;
+  first_name?: string;
+  last_name?: string;
   amount: number | string;
-  total_price?: number | string;
-  currency: string;
+  type: string;
   status: string;
-  purchase_date: string;
-  created_at: string;
+  payment_method?: string;
+  payment_date: string;
+  service_name?: string;
+  service_id?: number;
+  quantity?: number;
   custom_id?: string;
+  payment_type: 'transaction' | 'purchase';
 }
 
-interface UserPurchasesResponse {
-  user: AdminUser;
-  purchases: UserPurchase[];
+interface PaymentsResponse {
+  payments: Payment[];
   total: number;
   totalPages: number;
 }
 
-const AdminUserTransactionsPage: React.FC = () => {
-  const [searchInput, setSearchInput] = useState('');
-  const [currentUser, setCurrentUser] = useState<AdminUser | null>(null);
-  const [purchases, setPurchases] = useState<UserPurchase[]>([]);
+const AdminPaymentsByDatePage: React.FC = () => {
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
+  const [payments, setPayments] = useState<Payment[]>([]);
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [lastQuery, setLastQuery] = useState<string | null>(null);
 
-  const limit = 20;
+  const limit = 50;
 
-  const loadPurchases = async (pageToLoad: number, query?: string) => {
+  const loadPayments = async (pageToLoad: number = 1) => {
+    if (!startDate || !endDate) {
+      setError('Укажите период дат');
+      return;
+    }
+
     try {
       setLoading(true);
       setError('');
 
-      const rawQuery = (query ?? lastQuery ?? '').trim();
-      if (!rawQuery) {
-        setError('Укажите ID пользователя или @username');
-        return;
-      }
+      const data: PaymentsResponse = await adminService.getPaymentsByDateRange(
+        startDate,
+        endDate,
+        pageToLoad,
+        limit
+      );
 
-      const isNumeric = /^\d+$/.test(rawQuery);
-
-      const options: { userId?: number; username?: string; page?: number; limit?: number } = {
-        page: pageToLoad,
-        limit,
-      };
-
-      if (isNumeric) {
-        const id = parseInt(rawQuery, 10);
-        options.userId = id;
-      } else {
-        const username = rawQuery.replace(/^@/, '').trim();
-        if (!username) {
-          setError('Введите @username или ID пользователя');
-          return;
-        }
-        options.username = username;
-      }
-
-      const data: UserPurchasesResponse = await adminService.getUserPurchases(options);
-
-      setCurrentUser(data.user);
-      setPurchases(data.purchases);
+      setPayments(data.payments);
       setTotal(data.total);
       setTotalPages(data.totalPages);
       setCurrentPage(pageToLoad);
-      setLastQuery(rawQuery);
     } catch (err: any) {
-      setPurchases([]);
-      setCurrentUser(null);
+      setPayments([]);
       setTotal(0);
       setTotalPages(1);
-      setError(err.message || 'Не удалось загрузить транзакции пользователя');
+      setError(err.message || 'Не удалось загрузить платежи');
     } finally {
       setLoading(false);
     }
@@ -101,20 +72,13 @@ const AdminUserTransactionsPage: React.FC = () => {
 
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-
-    const trimmed = searchInput.trim();
-    if (!trimmed) {
-      setError('Введите значение для поиска');
-      return;
-    }
-
-    setLastQuery(trimmed);
-    loadPurchases(1, trimmed);
+    setCurrentPage(1);
+    loadPayments(1);
   };
 
   const handlePageChange = (nextPage: number) => {
-    if (nextPage < 1 || nextPage > totalPages || !lastQuery) return;
-    loadPurchases(nextPage);
+    if (nextPage < 1 || nextPage > totalPages) return;
+    loadPayments(nextPage);
   };
 
   const formatDate = (dateString: string): string => {
@@ -132,37 +96,87 @@ const AdminUserTransactionsPage: React.FC = () => {
     return num.toFixed(2);
   };
 
+  const getPaymentTypeLabel = (type: string, paymentType: string): string => {
+    if (paymentType === 'purchase') {
+      return 'Покупка';
+    }
+    if (type === 'deposit') {
+      return 'Пополнение';
+    }
+    if (type === 'withdrawal') {
+      return 'Вывод';
+    }
+    return type;
+  };
+
+  const getStatusLabel = (status: string): string => {
+    switch (status) {
+      case 'completed':
+        return 'Успешно';
+      case 'pending':
+        return 'В ожидании';
+      case 'failed':
+        return 'Ошибка';
+      case 'cancelled':
+        return 'Отменено';
+      default:
+        return status;
+    }
+  };
+
+  // Устанавливаем значения по умолчанию (сегодня и месяц назад)
+  React.useEffect(() => {
+    const today = new Date();
+    const monthAgo = new Date();
+    monthAgo.setMonth(monthAgo.getMonth() - 1);
+
+    const formatDateForInput = (date: Date): string => {
+      const year = date.getFullYear();
+      const month = String(date.getMonth() + 1).padStart(2, '0');
+      const day = String(date.getDate()).padStart(2, '0');
+      return `${year}-${month}-${day}`;
+    };
+
+    if (!startDate) {
+      setStartDate(formatDateForInput(monthAgo));
+    }
+    if (!endDate) {
+      setEndDate(formatDateForInput(today));
+    }
+  }, []);
+
   return (
     <Container>
       <Header>
-        <Title>Транзакции пользователя</Title>
-        <Subtitle>Поиск всех покупок по ID пользователя или @username</Subtitle>
+        <Title>Платежи по датам</Title>
+        <Subtitle>Фильтрация всех платежей пользователей (пополнения и покупки) по периоду</Subtitle>
       </Header>
 
       <SearchCard>
         <SearchForm onSubmit={handleSearchSubmit}>
-          <SearchRow>
-            <SearchInput
-              type="text"
-              placeholder="Введите ID пользователя или @username (например: 1 или @user)"
-              value={searchInput}
-              onChange={(e) => setSearchInput(e.target.value)}
-            />
+          <DateRow>
+            <DateInputGroup>
+              <DateLabel>Дата начала</DateLabel>
+              <DateInput
+                type="date"
+                value={startDate}
+                onChange={(e) => setStartDate(e.target.value)}
+                required
+              />
+            </DateInputGroup>
+            <DateInputGroup>
+              <DateLabel>Дата окончания</DateLabel>
+              <DateInput
+                type="date"
+                value={endDate}
+                onChange={(e) => setEndDate(e.target.value)}
+                required
+              />
+            </DateInputGroup>
             <SearchButton type="submit" disabled={loading}>
-              {loading ? 'Поиск...' : 'Найти'}
+              {loading ? 'Загрузка...' : 'Найти'}
             </SearchButton>
-          </SearchRow>
-
-          {lastQuery && currentUser && (
-            <SearchHint>
-              Показаны результаты для{' '}
-              <strong>
-                {/^\d+$/.test(lastQuery)
-                  ? `ID ${currentUser.id}`
-                  : `@${currentUser.username}`}
-              </strong>
-            </SearchHint>
-          )}
+          </DateRow>
         </SearchForm>
       </SearchCard>
 
@@ -173,106 +187,98 @@ const AdminUserTransactionsPage: React.FC = () => {
         </ErrorMessage>
       )}
 
-      {currentUser && (
-        <UserInfoCard>
-          <UserHeaderRow>
-            <UserMainInfo>
-              <UserAvatar>
-                {currentUser.username?.charAt(0)?.toUpperCase() || currentUser.id}
-              </UserAvatar>
-              <UserTextBlock>
-                <UserNameRow>
-                  <UserName>@{currentUser.username}</UserName>
-                  <UserIdTag>ID: {currentUser.id}</UserIdTag>
-                  {currentUser.telegram_id && (
-                    <UserIdTag>TG: {currentUser.telegram_id}</UserIdTag>
-                  )}
-                </UserNameRow>
-                <UserMetaRow>
-                  {currentUser.first_name || currentUser.last_name ? (
-                    <UserMetaItem>
-                      {currentUser.first_name} {currentUser.last_name}
-                    </UserMetaItem>
-                  ) : null}
-                  <UserMetaItem>Баланс: ${formatMoney(currentUser.balance)}</UserMetaItem>
-                  <UserMetaItem>Потрачено: ${formatMoney(currentUser.total_spent)}</UserMetaItem>
-                </UserMetaRow>
-              </UserTextBlock>
-            </UserMainInfo>
-            <UserStats>
-              <UserStatsValue>{total}</UserStatsValue>
-              <UserStatsLabel>Всего транзакций</UserStatsLabel>
-            </UserStats>
-          </UserHeaderRow>
-        </UserInfoCard>
+      {total > 0 && (
+        <StatsCard>
+          <StatsItem>
+            <StatsValue>{total}</StatsValue>
+            <StatsLabel>Всего платежей</StatsLabel>
+          </StatsItem>
+          <StatsItem>
+            <StatsValue>
+              ${formatMoney(
+                payments
+                  .filter((p) => p.status === 'completed')
+                  .reduce((sum, p) => {
+                    const amount = Number(p.amount || 0);
+                    return p.type === 'deposit' || p.payment_type === 'purchase'
+                      ? sum + Math.abs(amount)
+                      : sum;
+                  }, 0)
+              )}
+            </StatsValue>
+            <StatsLabel>Общая сумма</StatsLabel>
+          </StatsItem>
+        </StatsCard>
       )}
 
-      {loading && !currentUser && (
+      {loading && payments.length === 0 && (
         <LoadingContainer>
           <Spinner />
           <LoadingText>Загрузка данных...</LoadingText>
         </LoadingContainer>
       )}
 
-      {currentUser && (
+      {payments.length > 0 && (
         <>
           <TableCard>
             <Table>
               <TableHeader>
                 <TableRow>
                   <TableHeaderCell>ID</TableHeaderCell>
-                  <TableHeaderCell>Код заказа</TableHeaderCell>
-                  <TableHeaderCell>Что купил</TableHeaderCell>
-                  <TableHeaderCell>Кол-во</TableHeaderCell>
+                  <TableHeaderCell>Пользователь</TableHeaderCell>
+                  <TableHeaderCell>Тип</TableHeaderCell>
+                  <TableHeaderCell>Услуга</TableHeaderCell>
                   <TableHeaderCell>Сумма, USD</TableHeaderCell>
-                  <TableHeaderCell>Итого, USD</TableHeaderCell>
                   <TableHeaderCell>Статус</TableHeaderCell>
+                  <TableHeaderCell>Метод</TableHeaderCell>
                   <TableHeaderCell>Дата</TableHeaderCell>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {purchases.length === 0 ? (
-                  <EmptyRow>
-                    <EmptyCell colSpan={8}>У этого пользователя еще нет покупок</EmptyCell>
-                  </EmptyRow>
-                ) : (
-                  purchases.map((item) => (
-                    <TableRow key={item.id}>
-                      <TableCell>
-                        <IdCell>{item.id}</IdCell>
-                      </TableCell>
-                      <TableCell>
-                        {item.custom_id ? <CodeCell>{item.custom_id}</CodeCell> : <NoData>—</NoData>}
-                      </TableCell>
-                      <TableCell>
-                        <ServiceName>{item.service_name}</ServiceName>
-                      </TableCell>
-                      <TableCell>
-                        <QuantityCell>{item.quantity ?? 1}</QuantityCell>
-                      </TableCell>
-                      <TableCell>
-                        <AmountCell>${formatMoney(item.amount)}</AmountCell>
-                      </TableCell>
-                      <TableCell>
-                        <AmountCell>
-                          ${formatMoney(item.total_price ?? item.amount)}
-                        </AmountCell>
-                      </TableCell>
-                      <TableCell>
-                        <StatusBadge $status={item.status}>
-                          {item.status === 'completed'
-                            ? 'Успешно'
-                            : item.status === 'pending'
-                            ? 'В ожидании'
-                            : 'Ошибка'}
-                        </StatusBadge>
-                      </TableCell>
-                      <TableCell>
-                        <DateCell>{formatDate(item.purchase_date || item.created_at)}</DateCell>
-                      </TableCell>
-                    </TableRow>
-                  ))
-                )}
+                {payments.map((payment) => (
+                  <TableRow key={`${payment.payment_type}-${payment.id}`}>
+                    <TableCell>
+                      <IdCell>{payment.id}</IdCell>
+                    </TableCell>
+                    <TableCell>
+                      <UserCell>
+                        <UserName>@{payment.username}</UserName>
+                        {payment.telegram_id && (
+                          <UserIdTag>TG: {payment.telegram_id}</UserIdTag>
+                        )}
+                      </UserCell>
+                    </TableCell>
+                    <TableCell>
+                      <TypeBadge $type={payment.type} $paymentType={payment.payment_type}>
+                        {getPaymentTypeLabel(payment.type, payment.payment_type)}
+                      </TypeBadge>
+                    </TableCell>
+                    <TableCell>
+                      {payment.service_name ? (
+                        <ServiceName>{payment.service_name}</ServiceName>
+                      ) : (
+                        <NoData>—</NoData>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      <AmountCell $type={payment.type} $paymentType={payment.payment_type}>
+                        {payment.type === 'withdrawal' ? '-' : '+'}
+                        ${formatMoney(payment.amount)}
+                      </AmountCell>
+                    </TableCell>
+                    <TableCell>
+                      <StatusBadge $status={payment.status}>
+                        {getStatusLabel(payment.status)}
+                      </StatusBadge>
+                    </TableCell>
+                    <TableCell>
+                      <MethodCell>{payment.payment_method || '—'}</MethodCell>
+                    </TableCell>
+                    <TableCell>
+                      <DateCell>{formatDate(payment.payment_date)}</DateCell>
+                    </TableCell>
+                  </TableRow>
+                ))}
               </TableBody>
             </Table>
           </TableCard>
@@ -298,11 +304,18 @@ const AdminUserTransactionsPage: React.FC = () => {
           )}
         </>
       )}
+
+      {!loading && payments.length === 0 && startDate && endDate && (
+        <EmptyState>
+          <EmptyIcon>📊</EmptyIcon>
+          <EmptyText>Платежи за указанный период не найдены</EmptyText>
+        </EmptyState>
+      )}
     </Container>
   );
 };
 
-export default AdminUserTransactionsPage;
+export default AdminPaymentsByDatePage;
 
 // Animations
 const fadeIn = keyframes`
@@ -357,15 +370,28 @@ const SearchForm = styled.form`
   gap: 12px;
 `;
 
-const SearchRow = styled.div`
+const DateRow = styled.div`
   display: flex;
-  gap: 10px;
+  gap: 12px;
   flex-wrap: wrap;
+  align-items: flex-end;
 `;
 
-const SearchInput = styled.input`
+const DateInputGroup = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
   flex: 1;
-  min-width: 250px;
+  min-width: 150px;
+`;
+
+const DateLabel = styled.label`
+  color: #737591;
+  font-family: "ChakraPetch-Regular";
+  font-size: 12px;
+`;
+
+const DateInput = styled.input`
   background: rgba(255, 255, 255, 0.05);
   border: 1px solid rgba(255, 255, 255, 0.2);
   border-radius: 10px;
@@ -379,10 +405,6 @@ const SearchInput = styled.input`
     outline: none;
     border-color: #88FB47;
     box-shadow: 0 0 0 2px rgba(136, 251, 71, 0.2);
-  }
-
-  &::placeholder {
-    color: #737591;
   }
 `;
 
@@ -398,6 +420,7 @@ const SearchButton = styled.button`
   cursor: pointer;
   transition: all 0.3s ease;
   white-space: nowrap;
+  height: fit-content;
 
   &:hover:not(:disabled) {
     transform: translateY(-2px);
@@ -407,16 +430,6 @@ const SearchButton = styled.button`
   &:disabled {
     opacity: 0.7;
     cursor: not-allowed;
-  }
-`;
-
-const SearchHint = styled.div`
-  font-family: "ChakraPetch-Regular";
-  font-size: 13px;
-  color: #737591;
-
-  strong {
-    color: #88FB47;
   }
 `;
 
@@ -438,103 +451,31 @@ const ErrorIcon = styled.span`
   font-size: 16px;
 `;
 
-const UserInfoCard = styled.div`
+const StatsCard = styled.div`
   background: rgba(26, 26, 46, 0.9);
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 16px;
   padding: 18px 20px;
   margin-bottom: 20px;
-`;
-
-const UserHeaderRow = styled.div`
   display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 16px;
+  gap: 32px;
   flex-wrap: wrap;
 `;
 
-const UserMainInfo = styled.div`
-  display: flex;
-  gap: 14px;
-  align-items: center;
-  min-width: 0;
-`;
-
-const UserAvatar = styled.div`
-  width: 44px;
-  height: 44px;
-  border-radius: 50%;
-  background: linear-gradient(135deg, #88FB47 0%, #27C151 100%);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: #1a1a2e;
-  font-family: "ChakraPetch-Regular";
-  font-size: 20px;
-  font-weight: 700;
-  flex-shrink: 0;
-`;
-
-const UserTextBlock = styled.div`
+const StatsItem = styled.div`
   display: flex;
   flex-direction: column;
   gap: 4px;
-  min-width: 0;
 `;
 
-const UserNameRow = styled.div`
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  align-items: center;
-`;
-
-const UserName = styled.div`
-  color: #fff;
-  font-family: "ChakraPetch-Regular";
-  font-size: 16px;
-  font-weight: 600;
-`;
-
-const UserIdTag = styled.div`
-  padding: 2px 8px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  color: #737591;
-  font-family: "ChakraPetch-Regular";
-  font-size: 11px;
-`;
-
-const UserMetaRow = styled.div`
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-  align-items: center;
-`;
-
-const UserMetaItem = styled.div`
-  color: #737591;
-  font-family: "ChakraPetch-Regular";
-  font-size: 12px;
-`;
-
-const UserStats = styled.div`
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 4px;
-`;
-
-const UserStatsValue = styled.div`
+const StatsValue = styled.div`
   color: #88FB47;
   font-family: "ChakraPetch-Regular";
   font-size: 22px;
   font-weight: 600;
 `;
 
-const UserStatsLabel = styled.div`
+const StatsLabel = styled.div`
   color: #737591;
   font-family: "ChakraPetch-Regular";
   font-size: 12px;
@@ -570,7 +511,7 @@ const TableCard = styled.div`
 
 const Table = styled.table`
   width: 100%;
-  min-width: 900px;
+  min-width: 1000px;
   border-collapse: collapse;
 `;
 
@@ -616,22 +557,53 @@ const IdCell = styled.span`
   font-family: 'Courier New', monospace;
 `;
 
-const CodeCell = styled.span`
+const UserCell = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+`;
+
+const UserName = styled.span`
+  color: #fff;
   font-weight: 500;
-  color: #f8f89d;
+`;
+
+const UserIdTag = styled.span`
+  font-size: 11px;
+  color: #737591;
   font-family: 'Courier New', monospace;
+`;
+
+const TypeBadge = styled.span<{ $type: string; $paymentType: string }>`
+  display: inline-block;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-family: "ChakraPetch-Regular";
+  font-weight: 600;
+  background: ${({ $type, $paymentType }) =>
+    $paymentType === 'purchase'
+      ? 'rgba(136, 251, 71, 0.15)'
+      : $type === 'deposit'
+      ? 'rgba(39, 193, 81, 0.15)'
+      : 'rgba(255, 71, 87, 0.15)'};
+  color: ${({ $type, $paymentType }) =>
+    $paymentType === 'purchase'
+      ? '#88FB47'
+      : $type === 'deposit'
+      ? '#27C151'
+      : '#FF4757'};
 `;
 
 const ServiceName = styled.span`
   color: #fff;
 `;
 
-const QuantityCell = styled.span`
-  color: #fff;
-`;
-
-const AmountCell = styled.span`
-  color: #88FB47;
+const AmountCell = styled.span<{ $type: string; $paymentType: string }>`
+  color: ${({ $type, $paymentType }) =>
+    $paymentType === 'purchase' || $type === 'deposit'
+      ? '#88FB47'
+      : '#FF4757'};
   font-weight: 600;
 `;
 
@@ -652,6 +624,11 @@ const StatusBadge = styled.span<{ $status: string }>`
     $status === 'completed' ? '#27C151' : $status === 'pending' ? '#F89D09' : '#FF4757'};
 `;
 
+const MethodCell = styled.span`
+  color: #737591;
+  font-size: 12px;
+`;
+
 const DateCell = styled.span`
   color: #737591;
   font-size: 12px;
@@ -660,16 +637,6 @@ const DateCell = styled.span`
 const NoData = styled.span`
   color: #737591;
   font-style: italic;
-`;
-
-const EmptyRow = styled(TableRow)``;
-
-const EmptyCell = styled.td`
-  text-align: center;
-  padding: 40px;
-  color: rgba(255, 255, 255, 0.5);
-  font-family: "ChakraPetch-Regular";
-  font-size: 14px;
 `;
 
 const Pagination = styled.div`
@@ -733,3 +700,21 @@ const LoadingText = styled.span`
   font-family: "ChakraPetch-Regular";
 `;
 
+const EmptyState = styled.div`
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 80px 20px;
+  gap: 16px;
+`;
+
+const EmptyIcon = styled.div`
+  font-size: 48px;
+`;
+
+const EmptyText = styled.div`
+  color: #737591;
+  font-family: "ChakraPetch-Regular";
+  font-size: 16px;
+`;

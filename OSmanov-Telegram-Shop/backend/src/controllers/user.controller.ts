@@ -137,6 +137,60 @@ export class UserController {
       });
     }
   }
+
+  async getPWAInstructionStatus(req: Request, res: Response): Promise<void> {
+    try {
+      const userId = parseInt(req.params.userId);
+      
+      if (!userId || isNaN(userId)) {
+        res.status(400).json({
+          status: 'error',
+          message: 'Invalid user ID'
+        });
+        return;
+      }
+
+      const isShown = await userService.getPWAInstructionStatus(userId);
+      
+      res.json({
+        status: 'success',
+        data: { pwa_instruction_shown: isShown }
+      });
+    } catch (error) {
+      console.error('Error fetching PWA instruction status:', error);
+      res.status(500).json({
+        status: 'error',
+        message: 'Failed to fetch PWA instruction status'
+      });
+    }
+  }
+
+  async setPWAInstructionShown(req: Request, res: Response): Promise<void> {
+    try {
+      const userId = parseInt(req.params.userId);
+      
+      if (!userId || isNaN(userId)) {
+        res.status(400).json({
+          status: 'error',
+          message: 'Invalid user ID'
+        });
+        return;
+      }
+
+      await userService.setPWAInstructionShown(userId);
+      
+      res.json({
+        status: 'success',
+        message: 'PWA instruction status updated'
+      });
+    } catch (error) {
+      console.error('Error setting PWA instruction shown:', error);
+      res.status(500).json({
+        status: 'error',
+        message: 'Failed to update PWA instruction status'
+      });
+    }
+  }
 }
 
 export const userController = new UserController();

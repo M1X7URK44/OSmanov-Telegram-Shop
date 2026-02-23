@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import type { ReactNode } from 'react';
+import { api } from '../api';
 import { userApi } from '../api/user.api';
 import { telegramAuthService } from '../services/telegramAuth.service';
 import type { User, UserProfile } from '../types/api.types';
@@ -26,51 +27,61 @@ export const UserProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
   const [currentUserId, setCurrentUserId] = useState<number | null>(null);
 
-  const getCurrentUserId = async (): Promise<number | null> => {
-    try {
-      const token = telegramAuthService.getToken();
-      if (token) {
-        // Простая временная реализация - в продакшене нужно декодировать JWT
-        // Пока будем получать ID через API /auth/me
-        const response = await api.get('/auth/me');
-        if (response.data.status === 'success') {
-          return response.data.data.user.id;
-        }
-      }
-    } catch (error) {
-      console.error('Error getting current user ID:', error);
-    }
-    return null;
-  };
-
   const loadUserData = async () => {
     try {
       setLoading(true);
       setError(null);
       
-      // Проверяем аутентификацию
-      const authenticated = telegramAuthService.isAuthenticated();
-      setIsAuthenticated(authenticated);
-
-      if (!authenticated) {
+      // Проверяем наличие токена
+      const hasToken = telegramAuthService.isAuthenticated();
+      
+      if (!hasToken) {
+        setIsAuthenticated(false);
         setLoading(false);
         return;
       }
 
-      // Получаем ID текущего пользователя
-      const userId = await getCurrentUserId();
-      setCurrentUserId(userId);
-
-      if (userId) {
-        const profileData = await userApi.getProfile(userId);
-        setProfile(profileData);
-        setUser(profileData.user);
+      // Проверяем валидность токена через API
+      // Это важно для веб-пользователей - если токен истёк, нужно разлогинить
+      try {
+        const response = await api.get('/auth/me');
+        if (response.data.status === 'success') {
+          const userId = response.data.data.user.id;
+          setCurrentUserId(userId);
+          setIsAuthenticated(true);
+          
+          // Загружаем профиль пользователя
+          const profileData = await userApi.getProfile(userId);
+          setProfile(profileData);
+          setUser(profileData.user);
+        } else {
+          // Токен невалиден
+          telegramAuthService.logout();
+          setIsAuthenticated(false);
+          setCurrentUserId(null);
+        }
+      } catch (apiError: any) {
+        // Если ошибка 401 или 403 - токен истёк или невалиден
+        if (apiError?.response?.status === 401 || apiError?.response?.status === 403) {
+          console.log('Token expired or invalid, logging out');
+          telegramAuthService.logout();
+          setIsAuthenticated(false);
+          setCurrentUserId(null);
+        } else {
+          // Если это ошибка сети или другая ошибка - считаем что токен невалиден для безопасности
+          // (лучше попросить пользователя войти заново)
+          console.warn('API error during auth check:', apiError);
+          // Не очищаем токен при сетевых ошибках, но и не считаем авторизованным
+          setIsAuthenticated(false);
+          setCurrentUserId(null);
+          throw apiError;
+        }
       }
     } catch (err) {
       console.error('Error loading user data:', err);
       setError('Не удалось загрузить данные пользователя');
       // Если ошибка аутентификации, разлогиниваем
-      if (err instanceof Error && err.message.includes('401')) {
+      if (err instanceof Error && (err.message.includes('401') || err.message.includes('403'))) {
         telegramAuthService.logout();
         setIsAuthenticated(false);
         setCurrentUserId(null);
@@ -133,6 +144,3 @@ export const useUser = () => {
   }
   return context;
 };
-
-// Добавляем импорт api
-import { api } from '../api';

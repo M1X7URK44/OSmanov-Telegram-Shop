@@ -219,6 +219,9 @@ const spin = keyframes`
 // Styles
 const StatisticsContainer = styled.div`
   animation: ${fadeIn} 0.6s ease-out;
+  max-width: 100%;
+  width: 100%;
+  box-sizing: border-box;
 `;
 
 const StatisticsHeader = styled.div`

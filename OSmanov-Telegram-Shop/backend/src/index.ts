@@ -2,6 +2,7 @@
 import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
+import path from 'path';
 import { requestLogger } from './middleware/logger';
 import { giftsRoutes } from './routes/gifts.routes';
 import { userRoutes } from './routes/user.routes';
@@ -9,8 +10,19 @@ import { cardLinkRoutes } from './routes/cardlink.routes';
 import { authRoutes } from './routes/auth.routes';
 import { adminRoutes } from './routes/admin.routes';
 import { promocodeRoutes } from './routes/promocode.routes';
+import { fragmentRoutes } from './routes/fragment.routes';
 
-dotenv.config();
+// Загружаем .env из корня проекта только если файл существует (для локальной разработки)
+// В Docker переменные окружения уже доступны через process.env
+const envPath = path.resolve(__dirname, '../../.env');
+try {
+  const fs = require('fs');
+  if (fs.existsSync(envPath)) {
+    dotenv.config({ path: envPath });
+  }
+} catch (error) {
+  // Игнорируем ошибки, если .env файл не найден (нормально для Docker)
+}
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -104,6 +116,9 @@ app.use('/api/promocodes', (req, res, next) => {
   next();
 });
 app.use('/api/promocodes', promocodeRoutes);
+
+// Fragment API - Telegram Stars и Premium
+app.use('/api/fragment', fragmentRoutes);
 
 app.listen(PORT, () => {
   console.log(`🚀 Server is running on http://localhost:${PORT}`);

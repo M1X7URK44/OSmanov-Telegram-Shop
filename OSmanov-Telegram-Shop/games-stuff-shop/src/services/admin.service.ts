@@ -11,6 +11,11 @@ export interface AdminSettings {
   usd_to_rub_rate: number;
   min_deposit_amount: number;
   max_deposit_amount: number;
+  telegram_star_price_rub?: number;
+  telegram_premium_price_rub?: number;
+  telegram_premium_3m_price_rub?: number;
+  telegram_premium_6m_price_rub?: number;
+  telegram_premium_12m_price_rub?: number;
   updated_at: string;
   updated_by: number;
 }
@@ -93,6 +98,60 @@ class AdminService {
 
     if (!response.ok) {
       throw new Error('Failed to update exchange rate');
+    }
+
+    const result = await response.json();
+    return result.data;
+  }
+
+  // Обновление цен Telegram Stars / Premium
+  async updateTelegramPrices(
+    starPriceRub: number,
+    premiumPriceRub: number
+  ): Promise<AdminSettings> {
+    const token = this.getToken();
+    const response = await fetch(`${this.baseUrl}/settings/telegram-prices`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        telegram_star_price_rub: starPriceRub,
+        telegram_premium_price_rub: premiumPriceRub,
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error('Failed to update telegram prices');
+    }
+
+    const result = await response.json();
+    return result.data;
+  }
+
+  // Обновление цен Telegram Premium (3, 6, 12 месяцев)
+  async updatePremiumPrices(
+    premium3mPriceRub: number,
+    premium6mPriceRub: number,
+    premium12mPriceRub: number
+  ): Promise<AdminSettings> {
+    const token = this.getToken();
+    const response = await fetch(`${this.baseUrl}/settings/premium-prices`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        telegram_premium_3m_price_rub: premium3mPriceRub,
+        telegram_premium_6m_price_rub: premium6mPriceRub,
+        telegram_premium_12m_price_rub: premium12mPriceRub,
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error('Failed to update premium prices');
     }
 
     const result = await response.json();
@@ -254,6 +313,34 @@ class AdminService {
     if (!response.ok) {
       const error = await response.json();
       throw new Error(error.message || 'Failed to fetch user purchases');
+    }
+
+    const result = await response.json();
+    return result.data;
+  }
+
+  // Получение платежей по диапазону дат
+  async getPaymentsByDateRange(startDate: string, endDate: string, page: number = 1, limit: number = 50):
+    Promise<{ payments: any[]; total: number; totalPages: number }> {
+    const token = this.getToken();
+    const params = new URLSearchParams({
+      startDate,
+      endDate,
+      page: page.toString(),
+      limit: limit.toString(),
+    });
+
+    const response = await fetch(`${this.baseUrl}/payments-by-date?${params.toString()}`, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.message || 'Failed to fetch payments');
     }
 
     const result = await response.json();

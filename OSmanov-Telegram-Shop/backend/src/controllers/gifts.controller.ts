@@ -8,7 +8,29 @@ export class GiftsController {
   async getCategories(req: Request, res: Response): Promise<void> {
     try {
       const token = await giftsApiService.getAuthToken();
-      const categories = await giftsApiService.getCategories(token);
+      const categoriesResponse = await giftsApiService.getCategories(token);
+      
+      // Получаем массив категорий из ответа API
+      let categories = categoriesResponse;
+      if (categoriesResponse && categoriesResponse.data && Array.isArray(categoriesResponse.data)) {
+        categories = categoriesResponse.data;
+      } else if (Array.isArray(categoriesResponse)) {
+        categories = categoriesResponse;
+      }
+      
+      // Проверяем, есть ли уже категория с category_id=1
+      const hasSteamTopUp = categories.some((cat: any) => cat.category_id === 1);
+      
+      // Добавляем категорию "Steam CIS TopUp" с category_id=1, если её нет
+      if (!hasSteamTopUp) {
+        const steamTopUpCategory = {
+          category_name: 'Steam CIS TopUp',
+          category_id: 1
+        };
+        // Добавляем в начало массива
+        categories = [steamTopUpCategory, ...categories];
+        console.log('✅ Added Steam CIS TopUp category with category_id=1');
+      }
       
       res.json({
         status: 'success',
@@ -71,10 +93,26 @@ export class GiftsController {
       }
 
       const token = await giftsApiService.getAuthToken();
-      const services = await giftsApiService.getServicesByCategory(
+      const categoryId = parseInt(category_id as string);
+      let servicesResponse = await giftsApiService.getServicesByCategory(
         token, 
-        parseInt(category_id as string)
+        categoryId
       );
+      
+      // Получаем массив сервисов из ответа API
+      let services = servicesResponse;
+      if (servicesResponse && servicesResponse.data && Array.isArray(servicesResponse.data)) {
+        services = servicesResponse.data;
+      } else if (Array.isArray(servicesResponse)) {
+        services = servicesResponse;
+      }
+      
+      // Для category_id=1 оставляем только товар с service_id=1
+      if (categoryId === 1) {
+        const filteredServices = services.filter((service: any) => service.service_id === 1);
+        console.log(`✅ Filtered services for category_id=1: ${services.length} -> ${filteredServices.length} (only service_id=1)`);
+        services = filteredServices;
+      }
       
       res.json({
         status: 'success',
@@ -188,6 +226,29 @@ export class GiftsController {
 
       const order = await giftsApiService.createOrder(token, orderData);
       
+      // Для Steam TopUp (service_id=1) определяем исходную сумму в USD
+      const isSteamTopUp = parseInt(service_id) === 1;
+      let originalUsdAmount: number | undefined;
+      let finalPrice = parseFloat(price);
+      
+      // Если это Steam TopUp, price уже в рублях (конвертирован на фронтенде)
+      // quantity - это сумма в USD, которую ввел пользователь
+      if (isSteamTopUp) {
+        originalUsdAmount = parseFloat(quantity); // Исходная сумма в USD
+        finalPrice = parseFloat(price); // Уже конвертированная сумма в рублях
+        
+        console.log(`💰 Steam TopUp order creation:`, {
+          custom_id,
+          usd_amount: originalUsdAmount,
+          price_in_rubles: finalPrice,
+          quantity: parseFloat(quantity),
+          price_param: price
+        });
+      } else {
+        // Для обычных товаров: price * quantity
+        finalPrice = parseFloat(price) * parseFloat(quantity);
+      }
+      
       // Сохраняем заказ в базу данных
       await userService.savePurchaseWithDetails({
         user_id: parseInt(user_id),
@@ -195,9 +256,13 @@ export class GiftsController {
         service_id: parseInt(service_id),
         service_name,
         quantity: parseFloat(quantity),
-        total_price: parseFloat(price) * parseFloat(quantity),
-        status: 'pending'
+        total_price: finalPrice,
+        status: 'pending',
+        currency: isSteamTopUp ? 'RUB' : 'USD',
+        original_usd_amount: originalUsdAmount
       });
+      
+      console.log(`✅ Order saved to DB: custom_id=${custom_id}, total_price=${finalPrice}, currency=${isSteamTopUp ? 'RUB' : 'USD'}`);
 
       console.log(`✅ Order created: ${custom_id}, total: ${order.total}`);
       
@@ -231,6 +296,68 @@ export class GiftsController {
       }
 
       console.log(`💳 Paying for order: ${custom_id}`);
+
+      // Для Steam top-up (service_id=1) списываем баланс перед оплатой
+      const purchase = await userService.getPurchaseByCustomId(custom_id);
+      if (purchase && purchase.service_id === 1) {
+        const userBalance = await userService.getUserBalance(parseInt(user_id));
+        
+        // ВАЖНО: Баланс пользователя хранится в USD, поэтому списываем original_usd_amount (в USD)
+        // а не total_price (в рублях)!
+        let totalAmount: number;
+        
+        // Используем original_usd_amount из payment_details, если он есть
+        if (purchase.original_usd_amount !== null && purchase.original_usd_amount !== undefined) {
+          totalAmount = parseFloat(purchase.original_usd_amount);
+        } else {
+          // Fallback: если original_usd_amount нет, используем quantity (которое тоже в USD для Steam TopUp)
+          if (purchase.quantity !== null && purchase.quantity !== undefined) {
+            totalAmount = parseFloat(purchase.quantity);
+          } else {
+            console.error(`❌ ERROR: Cannot determine USD amount for Steam TopUp purchase ${custom_id}`);
+            res.status(500).json({
+              status: 'error',
+              message: 'Ошибка: не удалось определить сумму заказа в USD'
+            });
+            return;
+          }
+        }
+        
+        // Проверяем, что сумма корректна (больше 0)
+        if (isNaN(totalAmount) || totalAmount <= 0) {
+          console.error(`❌ ERROR: Invalid totalAmount for purchase ${custom_id}: ${totalAmount}`);
+          res.status(500).json({
+            status: 'error',
+            message: 'Ошибка: некорректная сумма заказа'
+          });
+          return;
+        }
+        
+        console.log(`💰 Steam TopUp - Purchase data:`, {
+          custom_id,
+          original_usd_amount: purchase.original_usd_amount,
+          quantity: purchase.quantity,
+          total_price: purchase.total_price,
+          amount: purchase.amount,
+          currency: purchase.currency,
+          calculated_total_usd: totalAmount,
+          user_balance: userBalance,
+          user_id: parseInt(user_id)
+        });
+        
+        if (userBalance < totalAmount) {
+          res.status(400).json({
+            status: 'error',
+            message: 'Недостаточно средств на счету!'
+          });
+          return;
+        }
+
+        // Списываем баланс в USD (так как баланс хранится в USD)
+        await userService.deductUserBalance(parseInt(user_id), totalAmount);
+        const newBalance = await userService.getUserBalance(parseInt(user_id));
+        console.log(`💰 Balance deducted: ${totalAmount} USD for user ${user_id}, was: ${userBalance}, now: ${newBalance}`);
+      }
 
       const token = await giftsApiService.getAuthToken();
       const paymentResult = await giftsApiService.payOrder(token, custom_id);
@@ -462,6 +589,24 @@ export class GiftsController {
       res.status(500).json({
         status: 'error',
         message: 'Failed to fetch detailed order information'
+      });
+    }
+  }
+
+  async getSteamCurrencyRates(req: Request, res: Response): Promise<void> {
+    try {
+      const token = await giftsApiService.getAuthToken();
+      const rates = await giftsApiService.getSteamCurrencyRates(token);
+      
+      res.json({
+        status: 'success',
+        data: rates
+      });
+    } catch (error) {
+      console.error('Error fetching Steam currency rates:', error);
+      res.status(500).json({
+        status: 'error',
+        message: 'Failed to fetch Steam currency rates'
       });
     }
   }

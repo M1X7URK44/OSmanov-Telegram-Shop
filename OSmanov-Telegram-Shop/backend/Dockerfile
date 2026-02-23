@@ -6,8 +6,11 @@ WORKDIR /app
 COPY package*.json ./
 COPY tsconfig.json ./
 
-# Устанавливаем зависимости
+# Устанавливаем зависимости (включая devDependencies для сборки TypeScript)
 RUN npm install
+
+# Явно устанавливаем типы для nodemailer (на случай если они не установились)
+RUN npm install --save-dev @types/nodemailer || echo "Types already installed"
 
 # Копируем исходный код
 COPY src/ ./src/

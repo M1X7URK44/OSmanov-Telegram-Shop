@@ -16,5 +16,6 @@ router.post('/pay-order', giftsController.payOrder.bind(giftsController));
 router.post('/checkout', giftsController.checkout.bind(giftsController));
 
 router.post('/order-info-by-custom-id', giftsController.getOrderInfoByCustomId.bind(giftsController));
+router.get('/steam/currency-rates', giftsController.getSteamCurrencyRates.bind(giftsController));
 
 export const giftsRoutes = router;

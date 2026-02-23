@@ -45,6 +45,42 @@ class TelegramAuthService {
     }
   }
 
+  /**
+   * Веб-авторизация: отправка кода на телефон
+   */
+  async sendPhoneCode(phone: string): Promise<void> {
+    const response = await api.post('/auth/send-phone-code', { phone });
+    if (response.data.status !== 'success') {
+      throw new Error(response.data.message || 'Ошибка отправки кода');
+    }
+  }
+
+  /**
+   * Веб-авторизация: отправка кода на email
+   */
+  async sendEmailCode(email: string): Promise<void> {
+    const response = await api.post('/auth/send-email-code', { email });
+    if (response.data.status !== 'success') {
+      throw new Error(response.data.message || 'Ошибка отправки кода');
+    }
+  }
+
+  /**
+   * Веб-авторизация: вход по коду (телефон или email)
+   */
+  async webLogin(params: { phone?: string; email?: string; code: string }): Promise<AuthResponse> {
+    const response = await api.post('/auth/web-login', params);
+    if (response.data.status === 'success') {
+      this.token = response.data.data.token;
+      if (this.token) {
+        localStorage.setItem('auth_token', this.token);
+        api.defaults.headers.common['Authorization'] = `Bearer ${this.token}`;
+      }
+      return response.data.data;
+    }
+    throw new Error(response.data.message || 'Ошибка входа');
+  }
+
   getToken(): string | null {
     if (!this.token) {
       this.token = localStorage.getItem('auth_token');

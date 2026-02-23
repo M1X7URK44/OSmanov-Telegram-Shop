@@ -140,6 +140,13 @@ const AdminLayout: React.FC<AdminLayoutProps> = ({ children, currentPage = 'dash
             {!sidebarCollapsed && <NavLabel>Транзакции</NavLabel>}
           </NavItem>
           <NavItem 
+            $active={currentPage === 'payments-by-date'} 
+            onClick={() => handleNavigation('payments-by-date')}
+          >
+            <NavIconText>📅</NavIconText>
+            {!sidebarCollapsed && <NavLabel>Платежи по датам</NavLabel>}
+          </NavItem>
+          <NavItem 
             $active={currentPage === 'promocodes'} 
             onClick={() => handleNavigation('promocodes')}
           >
@@ -174,6 +181,7 @@ const AdminLayout: React.FC<AdminLayoutProps> = ({ children, currentPage = 'dash
               {currentPage === 'statistics' && 'Статистика'}
               {currentPage === 'users' && 'Пользователи'}
               {currentPage === 'user-transactions' && 'Транзакции пользователя'}
+              {currentPage === 'payments-by-date' && 'Платежи по датам'}
               {currentPage === 'promocodes' && 'Промокоды'}
               {currentPage === 'settings' && 'Настройки'}
             </PageTitle>
@@ -488,6 +496,10 @@ const PageTitle = styled.h1`
 const Content = styled.div`
   padding: 30px;
   min-height: calc(100vh - 80px);
+  max-width: 1200px;
+  margin: 0 auto;
+  width: 100%;
+  box-sizing: border-box;
 `;
 
 const LoadingContainer = styled.div`

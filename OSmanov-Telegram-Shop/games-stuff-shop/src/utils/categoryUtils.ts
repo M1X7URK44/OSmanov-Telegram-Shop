@@ -5,29 +5,29 @@ import { getSubcategories, hasSubcategories, findApiCategoryByName } from './sub
 
 // Определяем основные категории, которые должны отображаться на главной странице
 export const MAIN_CATEGORIES = [
-  'Amazon Gift Card',
   'Apple Gift Card',
-  'Battle.net',
-  'EA App',
-  'EA Gift Card',
-  'Games | PC/Mac',
-  'Google Play Gift Card',
-  'League of Legends',
-  'Mobile Games Donation',
-  'Music & Streaming',
-  'Nintendo Gift Card',
+  'Steam Wallet',
   'Playstation Gift Card',
+  'Google Play Gift Card',
+  'Mobile Games Donation',
+  'Roblox',
+  'Battle.net',
+  'Nintendo Gift Card',
+  'Valorant',
+  'Steam Games',
+  'Xbox Gift Card',
+  'League of Legends',
+  'Rockstar Games',
+  'Xbox Subscriptions',
+  'Xbox Games',
   'Razer Gold Gift Card',
   'Riot Cash Card',
-  'Roblox',
-  'Rockstar Games',
+  'EA App',
+  'EA Gift Card',
+  'Amazon Gift Card',
+  'Music & Streaming',
   'Social Network',
-  'Steam Games',
-  'Steam Wallet',
-  'Valorant',
-  'Xbox Games',
-  'Xbox Gift Card',
-  'Xbox Subscriptions'
+  'Games | PC/Mac'
 ] as const;
 
 // Функция для определения, к какой основной категории относится API категория

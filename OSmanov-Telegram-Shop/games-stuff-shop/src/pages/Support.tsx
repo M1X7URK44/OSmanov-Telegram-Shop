@@ -21,6 +21,7 @@ const SupportPage: React.FC = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSubmitted, setIsSubmitted] = useState(false);
   const [errors, setErrors] = useState<Partial<SupportForm>>({});
+  const [activeLegalTab, setActiveLegalTab] = useState<'privacy' | 'terms'>('privacy');
 
   const validateForm = (): boolean => {
     const newErrors: Partial<SupportForm> = {};
@@ -274,6 +275,191 @@ const SupportPage: React.FC = () => {
           </InfoContent>
         </InfoCard>
       </SupportInfo>
+
+      <LegalSection>
+        <LegalHeader>
+          <LegalTitle>Правовая информация</LegalTitle>
+          <LegalSubtitle>
+            Пожалуйста, ознакомьтесь с нашей политикой конфиденциальности и пользовательским соглашением
+            перед использованием сервиса.
+          </LegalSubtitle>
+        </LegalHeader>
+
+        <LegalTabs>
+          <LegalTabButton
+            type="button"
+            $active={activeLegalTab === 'privacy'}
+            onClick={() => setActiveLegalTab('privacy')}
+          >
+            Политика конфиденциальности
+          </LegalTabButton>
+          <LegalTabButton
+            type="button"
+            $active={activeLegalTab === 'terms'}
+            onClick={() => setActiveLegalTab('terms')}
+          >
+            Пользовательское соглашение
+          </LegalTabButton>
+        </LegalTabs>
+
+        <LegalContent>
+          {activeLegalTab === 'privacy' ? (
+            <>
+              <LegalContentTitle>Политика конфиденциальности</LegalContentTitle>
+              <LegalParagraph>
+                Настоящая Политика конфиденциальности определяет порядок обработки и защиты персональных
+                данных пользователей сервиса <strong>osGIFT</strong>, доступного через Telegram‑бота и
+                веб‑интерфейс.
+              </LegalParagraph>
+
+              <LegalSubTitle>1. Общие положения</LegalSubTitle>
+              <LegalParagraph>
+                1.1. Используя наш сервис, вы подтверждаете, что ознакомились с данной Политикой и
+                соглашаетесь с её условиями. Если вы не согласны с условиями, пожалуйста, прекратите
+                использование сервиса.
+              </LegalParagraph>
+              <LegalParagraph>
+                1.2. Оператором персональных данных является владелец сервиса osGIFT (далее — «Администрация
+                сервиса»).
+              </LegalParagraph>
+
+              <LegalSubTitle>2. Какие данные мы собираем</LegalSubTitle>
+              <LegalList>
+                <li>идентификатор и имя вашего Telegram‑аккаунта;</li>
+                <li>контактный email (если вы указываете его в профиле или форме поддержки);</li>
+                <li>история заказов, операции пополнения и списания средств;</li>
+                <li>данные о выбранных товарах и игровых сервисах;</li>
+                <li>техническая информация: IP‑адрес, данные о браузере, информация о девайсе.</li>
+              </LegalList>
+
+              <LegalSubTitle>3. Цели обработки данных</LegalSubTitle>
+              <LegalParagraph>Мы обрабатываем ваши данные для следующих целей:</LegalParagraph>
+              <LegalList>
+                <li>оказание услуг по продаже цифровых товаров и игровых ценностей;</li>
+                <li>ведение истории заказов и баланса;</li>
+                <li>обработка обращений в службу поддержки;</li>
+                <li>улучшение качества сервиса и пользовательского опыта;</li>
+                <li>предотвращение мошенничества и обеспечение безопасности аккаунта.</li>
+              </LegalList>
+
+              <LegalSubTitle>4. Передача данных третьим лицам</LegalSubTitle>
+              <LegalParagraph>
+                Мы не продаём и не передаём ваши персональные данные третьим лицам, за исключением случаев,
+                когда это необходимо:
+              </LegalParagraph>
+              <LegalList>
+                <li>для выполнения обязательств по заказу (платёжные агрегаторы, платёжные системы);</li>
+                <li>по требованию уполномоченных государственных органов в рамках действующего законодательства;</li>
+                <li>для защиты прав и законных интересов Администрации сервиса.</li>
+              </LegalList>
+
+              <LegalSubTitle>5. Хранение и защита данных</LegalSubTitle>
+              <LegalParagraph>
+                Мы принимаем необходимые организационные и технические меры для защиты ваших персональных
+                данных от несанкционированного доступа, изменения, раскрытия или уничтожения.
+              </LegalParagraph>
+
+              <LegalSubTitle>6. Ваши права</LegalSubTitle>
+              <LegalList>
+                <li>получать информацию о том, какие данные о вас хранятся;</li>
+                <li>запрашивать исправление неточных данных;</li>
+                <li>запрашивать удаление ваших данных, если это не противоречит законодательству и
+                  обязательствам по заказам;</li>
+                <li>отозвать согласие на обработку персональных данных.</li>
+              </LegalList>
+
+              <LegalSubTitle>7. Контакты по вопросам конфиденциальности</LegalSubTitle>
+              <LegalParagraph>
+                По всем вопросам, связанным с обработкой персональных данных, вы можете связаться с нами по
+                адресу: <strong>os-projects@mail.ru</strong> или через Telegram: <strong>@osGIFT_support</strong>.
+              </LegalParagraph>
+            </>
+          ) : (
+            <>
+              <LegalContentTitle>Пользовательское соглашение</LegalContentTitle>
+              <LegalParagraph>
+                Настоящее Пользовательское соглашение (далее — «Соглашение») регулирует отношения между
+                пользователем и Администрацией сервиса <strong>osGIFT</strong> при использовании Telegram‑бота
+                и веб‑приложения.
+              </LegalParagraph>
+
+              <LegalSubTitle>1. Принятие условий</LegalSubTitle>
+              <LegalParagraph>
+                1.1. Начало использования сервиса, оформление заказа, пополнение баланса или обращение в
+                поддержку означает ваше полное и безоговорочное согласие с условиями настоящего Соглашения.
+              </LegalParagraph>
+
+              <LegalSubTitle>2. Описание сервиса</LegalSubTitle>
+              <LegalParagraph>
+                2.1. osGIFT предоставляет пользователям возможность приобретать цифровые товары, игровые
+                ценности и услуги, отображаемые в интерфейсе бота и веб‑приложения.
+              </LegalParagraph>
+
+              <LegalSubTitle>3. Регистрация и аккаунт</LegalSubTitle>
+              <LegalList>
+                <li>
+                  вы несёте ответственность за сохранность доступа к своему Telegram‑аккаунту и за все
+                  действия, совершённые от его имени;
+                </li>
+                <li>
+                  Администрация сервиса оставляет за собой право ограничить или заблокировать доступ к
+                  сервису при нарушении условий Соглашения.
+                </li>
+              </LegalList>
+
+              <LegalSubTitle>4. Оплата и возвраты</LegalSubTitle>
+              <LegalList>
+                <li>стоимость товаров и услуг указывается в интерфейсе сервиса;</li>
+                <li>оплата осуществляется через доступные платёжные методы и агрегаторы;</li>
+                <li>
+                  цифровые товары, как правило, не подлежат возврату после их активации/получения, за
+                  исключением случаев технической ошибки по вине сервиса;
+                </li>
+                <li>
+                  при спорных ситуациях пользователь обязан обратиться в поддержку и предоставить необходимую
+                  информацию (скриншоты, ID транзакции и т.п.).
+                </li>
+              </LegalList>
+
+              <LegalSubTitle>5. Обязанности пользователя</LegalSubTitle>
+              <LegalList>
+                <li>предоставлять достоверную информацию при оформлении заказов и обращениях;</li>
+                <li>не использовать сервис для мошеннических и противоправных действий;</li>
+                <li>не пытаться взломать, модифицировать или нарушать работу сервиса;</li>
+                <li>соблюдать правила конкретных игр и площадок, к которым относятся приобретаемые услуги.</li>
+              </LegalList>
+
+              <LegalSubTitle>6. Ответственность</LegalSubTitle>
+              <LegalList>
+                <li>
+                  сервис не несёт ответственности за блокировки аккаунтов в играх и сторонних сервисах,
+                  возникшие из‑за нарушения пользователем их правил;
+                </li>
+                <li>
+                  сервис не отвечает за сбои в работе платёжных систем, Telegram и других внешних сервисов;
+                </li>
+                <li>
+                  максимальный размер возможной ответственности сервиса ограничен суммой последнего оплаченного
+                  заказа пользователя.
+                </li>
+              </LegalList>
+
+              <LegalSubTitle>7. Изменение условий</LegalSubTitle>
+              <LegalParagraph>
+                Администрация сервиса вправе в одностороннем порядке изменять условия настоящего Соглашения и
+                Политики конфиденциальности. Актуальная версия документов всегда доступна на странице
+                поддержки.
+              </LegalParagraph>
+
+              <LegalSubTitle>8. Контакты</LegalSubTitle>
+              <LegalParagraph>
+                По вопросам, связанным с работой сервиса и условиями Соглашения, вы можете обратиться в
+                поддержку по email <strong>os-projects@mail.ru</strong> или в Telegram: <strong>@osGIFT_support</strong>.
+              </LegalParagraph>
+            </>
+          )}
+        </LegalContent>
+      </LegalSection>
     </SupportContainer>
   );
 };
@@ -579,6 +765,112 @@ const InfoText = styled.p`
   font-family: "ChakraPetch-Regular";
   font-size: 14px;
   margin: 0;
+`;
+
+const LegalSection = styled.section`
+  margin-top: 40px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 20px;
+  padding: 24px 20px 28px;
+`;
+
+const LegalHeader = styled.div`
+  margin-bottom: 20px;
+`;
+
+const LegalTitle = styled.h2`
+  color: #fff;
+  font-family: "ChakraPetch-Regular";
+  font-size: 20px;
+  margin: 0 0 6px 0;
+`;
+
+const LegalSubtitle = styled.p`
+  color: #737591;
+  font-family: "ChakraPetch-Regular";
+  font-size: 13px;
+  margin: 0;
+`;
+
+const LegalTabs = styled.div`
+  display: flex;
+  gap: 8px;
+  margin-bottom: 16px;
+  margin-top: 18px;
+  flex-wrap: wrap;
+`;
+
+const LegalTabButton = styled.button<{ $active?: boolean }>`
+  border-radius: 999px;
+  padding: 8px 14px;
+  font-family: "ChakraPetch-Regular";
+  font-size: 13px;
+  border: 1px solid ${({ $active }) => ($active ? '#88FB47' : 'rgba(255, 255, 255, 0.2)')};
+  background: ${({ $active }) => ($active ? 'rgba(136, 251, 71, 0.12)' : 'transparent')};
+  color: ${({ $active }) => ($active ? '#88FB47' : '#fff')};
+  cursor: pointer;
+  transition: all 0.25s ease;
+
+  &:hover {
+    border-color: #88FB47;
+    background: rgba(136, 251, 71, 0.08);
+  }
+`;
+
+const LegalContent = styled.div`
+  max-height: 260px;
+  padding-right: 8px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+
+  &::-webkit-scrollbar {
+    width: 6px;
+  }
+
+  &::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  &::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.2);
+    border-radius: 999px;
+  }
+`;
+
+const LegalContentTitle = styled.h3`
+  color: #fff;
+  font-family: "ChakraPetch-Regular";
+  font-size: 16px;
+  margin: 0 0 10px 0;
+`;
+
+const LegalSubTitle = styled.h4`
+  color: #88FB47;
+  font-family: "ChakraPetch-Regular";
+  font-size: 14px;
+  margin: 16px 0 6px 0;
+`;
+
+const LegalParagraph = styled.p`
+  color: #b4b6d3;
+  font-family: "ChakraPetch-Regular";
+  font-size: 13px;
+  line-height: 1.55;
+  margin: 0 0 6px 0;
+`;
+
+const LegalList = styled.ul`
+  color: #b4b6d3;
+  font-family: "ChakraPetch-Regular";
+  font-size: 13px;
+  line-height: 1.5;
+  margin: 0 0 4px 18px;
+  padding: 0;
+
+  li {
+    margin-bottom: 4px;
+  }
 `;
 
 // Success Message Styles

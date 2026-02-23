@@ -1,7 +1,5 @@
 import { Pool } from 'pg';
-import dotenv from 'dotenv';
-
-dotenv.config();
+// dotenv.config() уже вызывается в index.ts, переменные окружения доступны через process.env
 
 const pool = new Pool({
   user: process.env.DB_USER || 'postgres',

@@ -2,17 +2,21 @@ import React, { Suspense, lazy } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import AdminLoginPage from '../pages/AdminLogin.tsx';
 import AdminRoute from './AdminRoute.tsx';
+import { WebAuthGuard } from './WebAuthGuard.tsx';
 
 // Lazy loading для оптимизации
 const AllGamesPage = lazy(() => import('../pages/AllGames.tsx'));
 const ProfilePage = lazy(() => import('../pages/Profile.tsx'));
 const ShopCartPage = lazy(() => import('../pages/ShopCart.tsx'));
 const SupportPage = lazy(() => import('../pages/Support.tsx'));
+const AuthPage = lazy(() => import('../pages/AuthPage.tsx'));
+const TelegramStarsPage = lazy(() => import('../pages/TelegramStars.tsx'));
 const AdminSettingsPage = lazy(() => import('../pages/AdminSettings.tsx'));
 const AdminStatisticsPage = lazy(() => import('../pages/AdminStatistics.tsx'));
 const AdminPromocodesPage = lazy(() => import('../pages/AdminPromocodes.tsx'));
 const AdminUsersPage = lazy(() => import('../pages/AdminUsers.tsx'));
 const AdminUserTransactionsPage = lazy(() => import('../pages/AdminUserTransactions.tsx'));
+const AdminPaymentsByDatePage = lazy(() => import('../pages/AdminPaymentsByDate.tsx'));
 const AdminLayout = lazy(() => import('./AdminLayout.tsx'));
 
 // Loading компонент
@@ -38,15 +42,20 @@ const LoadingFallback = () => (
 const AppRoutes: React.FC = () => {
   return (
     <Suspense fallback={<LoadingFallback />}>
-      <Routes>
-        {/* Основные маршруты */}
-        <Route path="/" element={<AllGamesPage />} />
-        <Route path="/profile" element={<ProfilePage />} />
-        <Route path="/shop-cart" element={<ShopCartPage />} />
-        <Route path="/support" element={<SupportPage />} />
-        
-        {/* Админ маршруты */}
-        <Route path="/admin/login" element={<AdminLoginPage />} />
+      <WebAuthGuard>
+        <Routes>
+          {/* Страница входа/регистрации для веб-пользователей */}
+          <Route path="/auth" element={<AuthPage />} />
+          
+          {/* Основные маршруты */}
+          <Route path="/" element={<AllGamesPage />} />
+          <Route path="/profile" element={<ProfilePage />} />
+          <Route path="/shop-cart" element={<ShopCartPage />} />
+          <Route path="/support" element={<SupportPage />} />
+          <Route path="/telegram-stars" element={<TelegramStarsPage />} />
+          
+          {/* Админ маршруты */}
+          <Route path="/admin/login" element={<AdminLoginPage />} />
         
         {/* Защищенные админ маршруты */}
         <Route 
@@ -115,9 +124,21 @@ const AppRoutes: React.FC = () => {
           } 
         />
         
+        <Route 
+          path="/admin/payments-by-date" 
+          element={
+            <AdminRoute>
+              <AdminLayout currentPage="payments-by-date">
+                <AdminPaymentsByDatePage />
+              </AdminLayout>
+            </AdminRoute>
+          } 
+        />
+        
         {/* Редирект для несуществующих маршрутов */}
         <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
+        </Routes>
+      </WebAuthGuard>
     </Suspense>
   );
 };

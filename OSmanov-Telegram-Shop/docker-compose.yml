@@ -24,6 +24,8 @@ services:
       dockerfile: Dockerfile
     ports:
       - "5000:5000"
+    env_file:
+      - .env
     environment:
       - DB_USER=${DB_USER}
       - DB_HOST=${DB_HOST}
@@ -39,6 +41,9 @@ services:
       - FRONTEND_URL=${FRONTEND_URL}
 
       - JWT_SECRET=${JWT_SECRET}
+
+      - GIFTS_API_LOGIN=${GIFTS_API_LOGIN}
+      - GIFTS_API_PASSWORD=${GIFTS_API_PASSWORD}
     depends_on:
       postgres:
         condition: service_healthy

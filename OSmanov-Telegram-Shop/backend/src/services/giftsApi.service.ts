@@ -13,9 +13,18 @@ import {
 
 const MAIN_URL = 'https://api.ns.gifts';
 
-const credentials: Credentials = {
-  login: "djosmanov",
-  password: "Th2PPs2PAi"
+const getCredentials = (): Credentials => {
+  const login = process.env.GIFTS_API_LOGIN;
+  const password = process.env.GIFTS_API_PASSWORD;
+  
+  if (!login || !password) {
+    throw new Error('GIFTS_API_LOGIN and GIFTS_API_PASSWORD must be set in environment variables');
+  }
+  
+  return {
+    login,
+    password
+  };
 };
 
 class GiftsApiService {
@@ -38,6 +47,7 @@ class GiftsApiService {
 
   async getAuthToken(): Promise<string> {
     const url = `${MAIN_URL}/api/v1/get_token`;
+    const credentials = getCredentials();
     const data = {
       email: credentials.login,
       password: credentials.password
@@ -111,6 +121,16 @@ class GiftsApiService {
     };
 
     return await this.makeRequest<PayOrderResponse>(url, 'POST', headers, data);
+  }
+
+  async getSteamCurrencyRates(token: string): Promise<any> {
+    const url = `${MAIN_URL}/api/v1/steam/get_currency_rate`;
+    const headers = {
+      'Authorization': `Bearer ${token}`,
+      'accept': 'application/json'
+    };
+
+    return await this.makeRequest(url, 'POST', headers);
   }
 }
 

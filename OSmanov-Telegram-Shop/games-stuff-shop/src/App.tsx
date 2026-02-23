@@ -3,6 +3,7 @@ import { BrowserRouter as Router } from 'react-router-dom';
 import HeaderNavigation from "./components/HeaderNavigation.tsx";
 import Navigation from './components/Navigation.tsx';
 import AppRoutes from './components/AppRoutes.tsx';
+import PWAInstructionModal from './components/PWAInstructionModal.tsx';
 import styled from 'styled-components';
 import { CartProvider } from './context/CartContext';
 import { UserProvider } from './context/UserContext';
@@ -59,11 +60,13 @@ const App: React.FC = () => {
           <CartProvider>
             <Router>
               <AppWindow>
+                <BlurOverlay />
                 <HeaderNavigation />
                 <main className="main-content">
                   <AppRoutes />
                 </main>
                 <Navigation />
+                <PWAInstructionModal />
               </AppWindow>
             </Router>
           </CartProvider>
@@ -74,6 +77,20 @@ const App: React.FC = () => {
 };
 
 export default App;
+
+// Размытый оверлей над HeaderNavigation (область выше навигации)
+const BlurOverlay = styled.div`
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 100px;
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  background: rgba(26, 26, 46, 0.4);
+  z-index: 998;
+  pointer-events: none;
+`;
 
 // Styles (остается без изменений)
 const AppWindow = styled.div`
@@ -87,7 +104,7 @@ const AppWindow = styled.div`
   flex-direction: column;
 
   & .main-content {
-    padding-top: 100px;
+    padding-top: 200px;
     padding-bottom: 100px;
     box-sizing: border-box;
   }

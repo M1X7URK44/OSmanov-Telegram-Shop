@@ -38,4 +38,22 @@ export const userApi = {
       throw new Error(response.data.message || 'Failed to get order info');
     }
   },
+
+  // Получить статус показа PWA инструкции
+  getPWAInstructionStatus: async (userId: number): Promise<boolean> => {
+    const response = await api.get(`/user/pwa-instruction-status/${userId}`);
+    if (response.data.status === 'success') {
+      return response.data.data.pwa_instruction_shown;
+    } else {
+      throw new Error(response.data.message || 'Failed to get PWA instruction status');
+    }
+  },
+
+  // Установить статус показа PWA инструкции
+  setPWAInstructionShown: async (userId: number): Promise<void> => {
+    const response = await api.post(`/user/pwa-instruction-shown/${userId}`);
+    if (response.data.status !== 'success') {
+      throw new Error(response.data.message || 'Failed to set PWA instruction shown');
+    }
+  },
 };

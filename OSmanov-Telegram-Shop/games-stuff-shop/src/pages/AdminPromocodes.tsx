@@ -128,7 +128,8 @@ const AdminPromocodesPage: React.FC = () => {
 
       {error && <ErrorMessage>{error}</ErrorMessage>}
 
-      <Table>
+      <TableCard>
+        <Table>
         <TableHeader>
           <TableRow>
             <TableHeaderCell>Код</TableHeaderCell>
@@ -185,6 +186,7 @@ const AdminPromocodesPage: React.FC = () => {
           )}
         </TableBody>
       </Table>
+      </TableCard>
 
       {showCreateModal && (
         <ModalOverlay onClick={() => setShowCreateModal(false)}>
@@ -277,6 +279,9 @@ export default AdminPromocodesPage;
 // Styles
 const Container = styled.div`
   padding: 24px;
+  max-width: 100%;
+  width: 100%;
+  box-sizing: border-box;
 `;
 
 const Header = styled.div`
@@ -323,12 +328,41 @@ const ErrorMessage = styled.div`
   margin-bottom: 24px;
 `;
 
+const TableCard = styled.div`
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 20px;
+  padding: 20px;
+  backdrop-filter: blur(10px);
+  overflow-x: auto;
+  max-width: 100%;
+  
+  &::-webkit-scrollbar {
+    height: 8px;
+  }
+  
+  &::-webkit-scrollbar-track {
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 4px;
+  }
+  
+  &::-webkit-scrollbar-thumb {
+    background: rgba(136, 251, 71, 0.3);
+    border-radius: 4px;
+    
+    &:hover {
+      background: rgba(136, 251, 71, 0.5);
+    }
+  }
+`;
+
 const Table = styled.table`
   width: 100%;
   border-collapse: collapse;
   background: rgba(26, 26, 46, 0.6);
   border-radius: 12px;
   overflow: hidden;
+  min-width: 800px;
 `;
 
 const TableHeader = styled.thead`

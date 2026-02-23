@@ -1,6 +1,7 @@
 import styled, { keyframes } from "styled-components";
 import { api } from "../api";
 import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 // Types
 import type {  
   GiftsCategories, 
@@ -14,9 +15,11 @@ import AdvImage from "../assets/images/vpn-add.png";
 import AdvImageStars from "../assets/images/stars-add.png";
 
 import CartButton from '../components/CartButton';
+import SteamTopUpModal from '../components/SteamTopUpModal';
 import { useCurrency } from '../hooks/useCurrency'; // Добавляем импорт
 
 const AllGamesPage: React.FC = () => {
+    const navigate = useNavigate();
     const [categories, setCategories] = useState<CategoryWithImage[]>([]);
     const [selectedCategory, setSelectedCategory] = useState<CategoryWithImage | null>(null);
     const [selectedSubcategory, setSelectedSubcategory] = useState<string | null>(null);
@@ -27,10 +30,47 @@ const AllGamesPage: React.FC = () => {
     const [categoriesLoading, setCategoriesLoading] = useState(true);
     const [loadingCategoryId, setLoadingCategoryId] = useState<number | null>(null); // ID категории, которая загружается
     const [loadingSubcategoryName, setLoadingSubcategoryName] = useState<string | null>(null); // Название подкатегории, которая загружается
+    const [isSteamTopUpModalOpen, setIsSteamTopUpModalOpen] = useState(false);
     
     // Добавляем хук для валюты
     const { convertToRub, formatRubles, loading: ratesLoading } = useCurrency();
     const [convertedPrices, setConvertedPrices] = useState<{ [key: string]: number }>({});
+
+    // Функция для добавления товара Steam CIS TopUp с service_id=1, если его нет
+    const addSteamTopUpIfNeeded = (services: ServiceItem[], categoryName: string): ServiceItem[] => {
+        console.log('addSteamTopUpIfNeeded called with categoryName:', categoryName, 'services count:', services.length);
+        
+        // Проверяем, что это категория Steam Wallet
+        if (categoryName !== 'Steam Wallet') {
+            console.log('Category is not Steam Wallet, skipping');
+            return services;
+        }
+
+        // Проверяем, есть ли уже товар с service_id=1
+        const hasSteamTopUp = services.some(service => service.service_id === 1);
+        
+        if (hasSteamTopUp) {
+            console.log('Steam TopUp already exists in services');
+            return services;
+        }
+
+        // Создаем искусственный товар Steam CIS TopUp
+        const steamTopUpItem: ServiceItem = {
+            service_id: 1,
+            service_name: 'Steam CIS TopUp',
+            service_description: 'Пополнение Steam Wallet для стран СНГ',
+            price: 0, // Цена будет определяться пользователем
+            currency: 'USD',
+            in_stock: 999, // Всегда в наличии
+            available: true,
+        };
+
+        // Добавляем товар первым в списке
+        const newServices = [steamTopUpItem, ...services];
+        console.log('Adding Steam CIS TopUp item to Steam Wallet category, new services count:', newServices.length);
+        console.log('First service in list:', newServices[0]?.service_id, newServices[0]?.service_name);
+        return newServices;
+    };
 
     useEffect(() => {
         const fetchCategories = async () => {
@@ -80,6 +120,9 @@ const AllGamesPage: React.FC = () => {
 
     // Функция для отображения цены
     const renderPrice = (service: ServiceItem) => {
+        // Не показываем цену для товара с service_id=1 (Steam CIS TopUp)
+        if (service.service_id === 1) return null;
+        
         if (!service.price) return null;
 
         const rubPrice = convertedPrices[service.service_id];
@@ -120,7 +163,7 @@ const AllGamesPage: React.FC = () => {
 
     // Эффект для управления скроллом при открытии/закрытии модальных окон
     useEffect(() => {
-        if (isModalOpen || isServicesModalOpen) {
+        if (isModalOpen || isServicesModalOpen || isSteamTopUpModalOpen) {
             disableScroll();
         } else {
             enableScroll();
@@ -130,7 +173,7 @@ const AllGamesPage: React.FC = () => {
         return () => {
             enableScroll();
         };
-    }, [isModalOpen, isServicesModalOpen]);
+    }, [isModalOpen, isServicesModalOpen, isSteamTopUpModalOpen]);
 
     const handleCategoryClick = async (category: CategoryWithImage) => {
         // Проверяем, есть ли у категории подкатегории
@@ -164,11 +207,32 @@ const AllGamesPage: React.FC = () => {
                 });
                 
                 // Удаляем дубликаты по service_id и фильтруем по наличию
-                const uniqueServices = Array.from(
+                let uniqueServices = Array.from(
                     new Map(allServices.map(service => [service.service_id, service])).values()
                 )
                 .filter((item) => item.in_stock !== 0)
                 .sort((el1, el2) => el1.service_id - el2.service_id);
+                
+                // Добавляем товар Steam CIS TopUp, если это категория Steam Wallet
+                console.log('handleCategoryClick - Processing category:', category.name, 'services count before:', uniqueServices.length);
+                uniqueServices = addSteamTopUpIfNeeded(uniqueServices, category.name);
+                
+                // Дополнительная проверка для Steam Wallet
+                if (category.name === 'Steam Wallet' && !uniqueServices.some(s => s.service_id === 1)) {
+                    console.warn('WARNING: Steam TopUp not found after addSteamTopUpIfNeeded in handleCategoryClick! Force adding...');
+                    const steamTopUpItem: ServiceItem = {
+                        service_id: 1,
+                        service_name: 'Steam CIS TopUp',
+                        service_description: 'Пополнение Steam Wallet для стран СНГ',
+                        price: 0,
+                        currency: 'USD',
+                        in_stock: 999,
+                        available: true,
+                    };
+                    uniqueServices = [steamTopUpItem, ...uniqueServices];
+                }
+                
+                console.log('After adding Steam TopUp, services count:', uniqueServices.length, 'first item:', uniqueServices[0]?.service_id, uniqueServices[0]?.service_name);
                 
                 setServices(uniqueServices);
                 setIsServicesModalOpen(true);
@@ -282,7 +346,44 @@ const AllGamesPage: React.FC = () => {
                 params: { category_id: categoryId }
             });
             
-            setServices(response.data.data.sort((el1, el2) => el1.service_id - el2.service_id).filter((item) => item.in_stock !== 0));
+            let services = response.data.data.sort((el1, el2) => el1.service_id - el2.service_id).filter((item) => item.in_stock !== 0);
+            
+            // Добавляем товар Steam CIS TopUp для всех подкатегорий Steam Wallet
+            // Проверяем по selectedCategory или по названию подкатегории (все подкатегории Steam Wallet содержат "Steam" или "Steam Wallet")
+            const isSteamWallet = (selectedCategory && selectedCategory.name === 'Steam Wallet') || 
+                                   subcategoryName.toLowerCase().includes('steam');
+            
+            console.log('handleSubcategoryClick - subcategoryName:', subcategoryName, 'selectedCategory:', selectedCategory?.name, 'isSteamWallet:', isSteamWallet, 'services before:', services.length);
+            
+            // ВСЕГДА добавляем товар для всех подкатегорий Steam Wallet
+            if (isSteamWallet) {
+                console.log('Adding Steam TopUp for Steam Wallet subcategory:', subcategoryName);
+                const servicesBefore = services.length;
+                services = addSteamTopUpIfNeeded(services, 'Steam Wallet');
+                console.log('Services after adding Steam TopUp:', services.length, 'was:', servicesBefore);
+                console.log('First service:', services[0]?.service_id, services[0]?.service_name);
+            } else {
+                console.log('NOT adding Steam TopUp - subcategory:', subcategoryName, 'selectedCategory:', selectedCategory?.name);
+            }
+            
+            // Финальная проверка: убеждаемся, что товар с service_id=1 есть в списке для Steam Wallet
+            if (isSteamWallet && !services.some(s => s.service_id === 1)) {
+                console.warn('WARNING: Steam TopUp item not found after adding! Forcing add...');
+                const steamTopUpItem: ServiceItem = {
+                    service_id: 1,
+                    service_name: 'Steam CIS TopUp',
+                    service_description: 'Пополнение Steam Wallet для стран СНГ',
+                    price: 0,
+                    currency: 'USD',
+                    in_stock: 999,
+                    available: true,
+                };
+                services = [steamTopUpItem, ...services];
+                console.log('Force added Steam TopUp, new count:', services.length);
+            }
+            
+            console.log('Final services array:', services.length, 'items. First item:', services[0]?.service_id, services[0]?.service_name);
+            setServices(services);
             setIsServicesModalOpen(true);
             setIsModalOpen(false); // Закрываем модальное окно с подкатегориями
         } catch (error) {
@@ -307,7 +408,31 @@ const AllGamesPage: React.FC = () => {
                 params: { category_id: tagID }
             });
             
-            setServices(response.data.data.sort((el1, el2) => el1.service_id - el2.service_id).filter((item) => item.in_stock !== 0));
+            let services = response.data.data.sort((el1, el2) => el1.service_id - el2.service_id).filter((item) => item.in_stock !== 0);
+            
+            // Добавляем товар Steam CIS TopUp, если выбранная категория - Steam Wallet
+            console.log('handleCountrySelect - selectedCategory:', selectedCategory?.name, 'tag:', tag);
+            if (selectedCategory && selectedCategory.name === 'Steam Wallet') {
+                console.log('Adding Steam TopUp for Steam Wallet in handleCountrySelect');
+                services = addSteamTopUpIfNeeded(services, 'Steam Wallet');
+                // Дополнительная проверка
+                if (!services.some(s => s.service_id === 1)) {
+                    console.warn('WARNING: Steam TopUp not found after addSteamTopUpIfNeeded in handleCountrySelect!');
+                    const steamTopUpItem: ServiceItem = {
+                        service_id: 1,
+                        service_name: 'Steam CIS TopUp',
+                        service_description: 'Пополнение Steam Wallet для стран СНГ',
+                        price: 0,
+                        currency: 'USD',
+                        in_stock: 999,
+                        available: true,
+                    };
+                    services = [steamTopUpItem, ...services];
+                }
+            }
+            
+            console.log('handleCountrySelect final services:', services.length, 'first:', services[0]?.service_id);
+            setServices(services);
             setIsServicesModalOpen(true);
         } catch (error) {
             console.error('Error fetching services:', error);
@@ -352,7 +477,7 @@ const AllGamesPage: React.FC = () => {
                                 <AdvAbout>🛡 Самый быстрый и безопасный VPN-сервис прямо в Телеграме!</AdvAbout>
                             </InfoAdvBlock>
                         </AdvBlock>
-                        <AdvBlock onClick={() => window.open('https://t.me/osStars_bot', '_blank')}>
+                        <AdvBlock onClick={() => navigate('/telegram-stars')}>
                             <AdvStyledImage src={AdvImageStars} alt="AdvImageStars" />
                             <InfoAdvBlock>
                                 <AdvTitle>osSTARS | Звезды и Премиум</AdvTitle>
@@ -510,7 +635,13 @@ const AllGamesPage: React.FC = () => {
                                                 )}
                                                 {renderPrice(service)}
                                             </ServiceInfo>
-                                            <CartButton service={service} />
+                                            {service.service_id === 1 ? (
+                                                <SteamTopUpButton onClick={() => setIsSteamTopUpModalOpen(true)}>
+                                                    Пополнить
+                                                </SteamTopUpButton>
+                                            ) : (
+                                                <CartButton service={service} />
+                                            )}
                                         </ServiceItem>
                                     ))}
                                 </ServicesList>
@@ -523,6 +654,15 @@ const AllGamesPage: React.FC = () => {
                     </ModalContent>
                 </ModalOverlay>
             )}
+
+            {/* Модальное окно для пополнения Steam Wallet */}
+            <SteamTopUpModal
+                isOpen={isSteamTopUpModalOpen}
+                onClose={() => setIsSteamTopUpModalOpen(false)}
+                onSuccess={() => {
+                    // Можно обновить данные или показать уведомление
+                }}
+            />
         </>
     )
 }
@@ -984,4 +1124,27 @@ const ServiceDescription = styled.span`
     color: #737591;
     font-size: 14px;
     font-family: "ChakraPetch-Regular";
+`;
+
+const SteamTopUpButton = styled.button`
+    background: #88FB47;
+    color: #1a1a2e;
+    border: none;
+    border-radius: 8px;
+    padding: 10px 20px;
+    font-family: "ChakraPetch-Regular";
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.3s ease;
+
+    &:hover {
+        background: #7ae03d;
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(136, 251, 71, 0.3);
+    }
+
+    &:active {
+        transform: translateY(0);
+    }
 `;

@@ -315,6 +315,9 @@ const spin = keyframes`
 // Styles
 const Container = styled.div`
   animation: ${fadeIn} 0.6s ease-out;
+  max-width: 100%;
+  width: 100%;
+  box-sizing: border-box;
 `;
 
 const Header = styled.div`

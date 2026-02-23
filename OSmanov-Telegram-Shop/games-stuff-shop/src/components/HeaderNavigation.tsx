@@ -73,6 +73,8 @@ const StyledLogo = styled.img`
 `;
 
 const NavLine = styled.div`
+    margin-top: 100px;
+
     display: flex;
     flex-direction: row;
 
